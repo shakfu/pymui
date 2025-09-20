@@ -103,7 +103,7 @@ cdef class Vec2:
         """
         self._vec.x = x
         self._vec.y = y
-    
+
     @property
     def x(self) -> int:
         """Get or set the x coordinate."""
@@ -121,16 +121,16 @@ cdef class Vec2:
     @y.setter
     def y(self, int value):
         self._vec.y = value
-    
+
     def __repr__(self):
         return f"Vec2({self.x}, {self.y})"
-    
+
     @staticmethod
     cdef Vec2 from_c(mu_Vec2 vec):
         cdef Vec2 result = Vec2.__new__(Vec2)
         result._vec = vec
         return result
-    
+
     cdef mu_Vec2 to_c(self):
         return self._vec
 
@@ -286,16 +286,16 @@ cdef class Color:
     @a.setter
     def a(self, int value):
         self._color.a = value
-    
+
     def __repr__(self):
         return f"Color({self.r}, {self.g}, {self.b}, {self.a})"
-    
+
     @staticmethod
     cdef Color from_c(mu_Color color):
         cdef Color result = Color.__new__(Color)
         result._color = color
         return result
-    
+
     cdef mu_Color to_c(self):
         return self._color
 
@@ -337,72 +337,72 @@ cdef class Style:
     # @property
     # def font(self):
     #     return <object>self.ptr.font
-    
+
     # @font.setter
     # def font(self, font):
     #     self.ptr.font = <mu_Font>font
-    
+
     @property
     def size(self) -> Vec2:
         return Vec2.from_c(self.ptr.size)
-    
+
     @size.setter
     def size(self, Vec2 value):
         self.ptr.size = value.to_c()
-    
+
     @property
     def padding(self) -> int:
         return self.ptr.padding
-    
+
     @padding.setter
     def padding(self, int value):
         self.ptr.padding = value
-    
+
     @property
     def spacing(self) -> int:
         return self.ptr.spacing
-    
+
     @spacing.setter
     def spacing(self, int value):
         self.ptr.spacing = value
-    
+
     @property
     def indent(self) -> int:
         return self.ptr.indent
-    
+
     @indent.setter
     def indent(self, int value):
         self.ptr.indent = value
-    
+
     @property
     def title_height(self) -> int:
         return self.ptr.title_height
-    
+
     @title_height.setter
     def title_height(self, int value):
         self.ptr.title_height = value
-    
+
     @property
     def scrollbar_size(self) -> int:
         return self.ptr.scrollbar_size
-    
+
     @scrollbar_size.setter
     def scrollbar_size(self, int value):
         self.ptr.scrollbar_size = value
-    
+
     @property
     def thumb_size(self) -> int:
         return self.ptr.thumb_size
-    
+
     @thumb_size.setter
     def thumb_size(self, int value):
         self.ptr.thumb_size = value
-    
+
     def get_color(self, int index) -> Color:
         if 0 <= index < MU_COLOR_MAX:
             return Color.from_c(self.ptr.colors[index])
         raise IndexError("Color index out of range")
-    
+
     def set_color(self, int index, Color color):
         if 0 <= index < MU_COLOR_MAX:
             self.ptr.colors[index] = color.to_c()
@@ -552,7 +552,7 @@ cdef class Context:
         mu_begin(self.ptr)
         # Reset command iterator for new frame
         self.current_command = NULL
-    
+
     def end(self):
         """End the current UI frame.
 
@@ -608,7 +608,7 @@ cdef class Context:
             id (int): The widget ID to focus
         """
         mu_set_focus(self.ptr, id)
-    
+
     def get_id(self, data) -> int:
         """Get an ID for the given data.
 
@@ -634,7 +634,7 @@ cdef class Context:
             raise UnicodeEncodeError("Failed to encode data for ID generation") from e
 
         return mu_get_id(self.ptr, <const char*>bdata, len(bdata))
-    
+
     def push_id(self, data):
         """Push an ID onto the ID stack"""
         cdef bytes bdata
@@ -645,63 +645,63 @@ cdef class Context:
         else:
             bdata = str(data).encode('utf-8')
         mu_push_id(self.ptr, <const char*>bdata, len(bdata))
-    
+
     def pop_id(self):
         """Pop an ID from the ID stack"""
         mu_pop_id(self.ptr)
-    
+
     def push_clip_rect(self, Rect rect):
         """Push a clip rectangle"""
         mu_push_clip_rect(self.ptr, rect.to_c())
-    
+
     def pop_clip_rect(self):
         """Pop a clip rectangle"""
         mu_pop_clip_rect(self.ptr)
-    
+
     def get_clip_rect(self) -> Rect:
         """Get the current clip rectangle"""
         return Rect.from_c(mu_get_clip_rect(self.ptr))
-    
+
     def check_clip(self, Rect rect) -> int:
         """Check if a rectangle is clipped"""
         return mu_check_clip(self.ptr, rect.to_c())
-    
+
     # Input functions
     def input_mousemove(self, int x, int y):
         """Handle mouse movement"""
         mu_input_mousemove(self.ptr, x, y)
-    
+
     def input_mousedown(self, int x, int y, int btn):
         """Handle mouse button press"""
         mu_input_mousedown(self.ptr, x, y, btn)
-    
+
     def input_mouseup(self, int x, int y, int btn):
         """Handle mouse button release"""
         mu_input_mouseup(self.ptr, x, y, btn)
-    
+
     def input_scroll(self, int x, int y):
         """Handle scroll input"""
         mu_input_scroll(self.ptr, x, y)
-    
+
     def input_keydown(self, int key):
         """Handle key press"""
         mu_input_keydown(self.ptr, key)
-    
+
     def input_keyup(self, int key):
         """Handle key release"""
         mu_input_keyup(self.ptr, key)
-    
+
     def input_text(self, str text):
         """Handle text input"""
         cdef bytes btext = text.encode('utf-8')
         mu_input_text(self.ptr, btext)
-    
+
     # Layout functions
     # def layout_row(self, int items, widths, int height):
     #     """Set up a row layout"""
     #     cdef int* width_array = NULL
     #     cdef int i
-        
+
     #     if widths is not None:
     #         if isinstance(widths, (list, tuple)):
     #             width_array = <int*>malloc(items * sizeof(int))
@@ -709,36 +709,36 @@ cdef class Context:
     #                 width_array[i] = widths[i]
     #         elif isinstance(widths, np.ndarray):
     #             width_array = <int*>np.PyArray_DATA(widths)
-        
+
     #     mu_layout_row(self.ptr, items, width_array, height)
-        
+
     #     if width_array is not NULL and not isinstance(widths, np.ndarray):
     #         free(width_array)
-    
+
     def layout_width(self, int width):
         """Set layout width"""
         mu_layout_width(self.ptr, width)
-    
+
     def layout_height(self, int height):
         """Set layout height"""
         mu_layout_height(self.ptr, height)
-    
+
     def layout_begin_column(self):
         """Begin a column layout"""
         mu_layout_begin_column(self.ptr)
-    
+
     def layout_end_column(self):
         """End a column layout"""
         mu_layout_end_column(self.ptr)
-    
+
     def layout_set_next(self, Rect rect, int relative):
         """Set the next layout rectangle"""
         mu_layout_set_next(self.ptr, rect.to_c(), relative)
-    
+
     def layout_next(self) -> Rect:
         """Get the next layout rectangle"""
         return Rect.from_c(mu_layout_next(self.ptr))
-    
+
     # Widget functions
     def text(self, str text):
         """Draw text.
@@ -759,29 +759,29 @@ cdef class Context:
             raise UnicodeEncodeError("Failed to encode text") from e
 
         mu_text(self.ptr, btext)
-    
+
     def label(self, str text):
         """Draw a label"""
         cdef bytes btext = text.encode('utf-8')
         mu_label(self.ptr, btext)
-    
+
     def button(self, str label, int icon=0, int opt=0) -> int:
         """Create a button"""
         cdef bytes blabel = label.encode('utf-8')
         return mu_button_ex(self.ptr, blabel, icon, opt)
-    
+
     def checkbox(self, str label, state) -> tuple:
         """Create a checkbox - returns (result, new_state)"""
         cdef bytes blabel
         cdef int c_state
         cdef int result
-        
+
         blabel = label.encode('utf-8')
         c_state = int(state)
         result = mu_checkbox(self.ptr, blabel, &c_state)
         return (result, c_state)
-    
-    
+
+
     def textbox(self, str buf, int bufsz, int opt=0):
         """Create a textbox - backward compatible version returns just result"""
         # For backward compatibility, return just the result code
@@ -790,7 +790,7 @@ cdef class Context:
         # For testing/mock purposes, just return a mock result
         # In practice, this would need proper buffer handling
         return 0  # MU_RES_NONE
-    
+
     def textbox_ex(self, str buf, int bufsz, int opt=0) -> tuple:
         """Create a textbox with enhanced memory safety - returns (result, new_text)
 
@@ -849,45 +849,45 @@ cdef class Context:
             return (result, new_text)
         finally:
             free(c_buf)
-    
+
     def slider(self, float value, float low, float high, float step=0, str fmt="%.2f", int opt=0) -> tuple:
         """Create a slider - returns (result, new_value)"""
         cdef bytes bfmt
         cdef float c_value
         cdef int result
-        
+
         bfmt = fmt.encode('utf-8')
         c_value = value
         result = mu_slider_ex(self.ptr, &c_value, low, high, step, bfmt, opt)
         return (result, c_value)
-    
-    
+
+
     def number(self, float value, float step, str fmt="%.2f", int opt=0) -> tuple:
         """Create a number input - returns (result, new_value)"""
         cdef bytes bfmt
         cdef float c_value
         cdef int result
-        
+
         bfmt = fmt.encode('utf-8')
         c_value = value
         result = mu_number_ex(self.ptr, &c_value, step, bfmt, opt)
         return (result, c_value)
-    
-    
+
+
     def header(self, str label, int opt=0) -> int:
         """Create a header"""
         cdef bytes blabel = label.encode('utf-8')
         return mu_header_ex(self.ptr, blabel, opt)
-    
+
     def begin_treenode(self, str label, int opt=0) -> int:
         """Begin a tree node"""
         cdef bytes blabel = label.encode('utf-8')
         return mu_begin_treenode_ex(self.ptr, blabel, opt)
-    
+
     def end_treenode(self):
         """End a tree node"""
         mu_end_treenode(self.ptr)
-    
+
     def begin_window(self, str title, Rect rect, int opt=0) -> int:
         """Begin a window.
 
@@ -918,7 +918,7 @@ cdef class Context:
             raise UnicodeEncodeError("Failed to encode window title") from e
 
         return mu_begin_window_ex(self.ptr, btitle, rect.to_c(), opt)
-    
+
     def end_window(self):
         """End a window"""
         mu_end_window(self.ptr)
@@ -951,65 +951,65 @@ cdef class Context:
         """Open a popup"""
         cdef bytes bname = name.encode('utf-8')
         mu_open_popup(self.ptr, bname)
-    
+
     def begin_popup(self, str name) -> int:
         """Begin a popup"""
         cdef bytes bname = name.encode('utf-8')
         return mu_begin_popup(self.ptr, bname)
-    
+
     def end_popup(self):
         """End a popup"""
         mu_end_popup(self.ptr)
-    
+
     def begin_panel(self, str name, int opt=0):
         """Begin a panel"""
         cdef bytes bname = name.encode('utf-8')
         mu_begin_panel_ex(self.ptr, bname, opt)
-    
+
     def end_panel(self):
         """End a panel"""
         mu_end_panel(self.ptr)
-    
+
     # Drawing functions
     def draw_rect(self, Rect rect, Color color):
         """Draw a rectangle"""
         mu_draw_rect(self.ptr, rect.to_c(), color.to_c())
-    
+
     def draw_box(self, Rect rect, Color color):
         """Draw a box"""
         mu_draw_box(self.ptr, rect.to_c(), color.to_c())
-    
+
     def draw_text(self, font, str text, Vec2 pos, Color color):
         """Draw text"""
         cdef bytes btext = text.encode('utf-8')
         r_draw_text(btext, pos.to_c(), color.to_c())
         # mu_draw_text(self.ptr, <mu_Font>font, btext, len(btext), pos.to_c(), color.to_c())
-    
+
     def draw_icon(self, int id, Rect rect, Color color):
         """Draw an icon"""
         mu_draw_icon(self.ptr, id, rect.to_c(), color.to_c())
-    
+
     # Utility functions
     @staticmethod
     def vec2(int x, int y) -> Vec2:
         """Create a Vec2"""
         return Vec2.from_c(mu_vec2(x, y))
-    
+
     @staticmethod
     def rect(int x, int y, int w, int h) -> Rect:
         """Create a Rect"""
         return Rect.from_c(mu_rect(x, y, w, h))
-    
+
     @staticmethod
     def color(int r, int g, int b, int a=255) -> Color:
         """Create a Color"""
         return Color.from_c(mu_color(r, g, b, a))
-    
+
     # Command iteration reset
     def reset_command_iterator(self):
         """Reset command iterator to beginning"""
         self.current_command = NULL
-    
+
     # Container access
     def get_current_container(self):
         """Get the current container - returns None if no container"""
@@ -1018,7 +1018,7 @@ cdef class Context:
             return None
         # Return a simple wrapper with basic properties
         return ContainerWrapper.from_ptr(container)
-    
+
     def get_container(self, str name):
         """Get a container by name"""
         cdef bytes bname = name.encode('utf-8')
@@ -1026,20 +1026,20 @@ cdef class Context:
         if container == NULL:
             return None
         return ContainerWrapper.from_ptr(container)
-    
+
     # Mouse over check
     def mouse_over(self, Rect rect) -> int:
         """Check if mouse is over a rectangle"""
         return mu_mouse_over(self.ptr, rect.to_c())
-    
+
     # Command processing
     def next_command(self):
         """Get the next command from the command buffer"""
         cdef int result = mu_next_command(self.ptr, &self.current_command)
-        
+
         if result == 0 or self.current_command == NULL:
             return None
-        
+
         # Create a Python wrapper for the command based on its type
         if self.current_command.type == MU_COMMAND_RECT:
             return RectCommand.from_c(self.current_command.rect)
@@ -1054,7 +1054,7 @@ cdef class Context:
         else:
             # Return a base command for unknown types
             return BaseCommand.from_c(self.current_command.base)
-    
+
     def layout_row(self, widths, int height):
         """Set up a row layout with specific widths.
 
@@ -1183,40 +1183,40 @@ cdef class Window:
 # Container wrapper class
 cdef class ContainerWrapper:
     cdef mu_Container* ptr
-    
+
     def __cinit__(self):
         self.ptr = NULL
-    
+
     @staticmethod
     cdef ContainerWrapper from_ptr(mu_Container* ptr):
         cdef ContainerWrapper wrapper = ContainerWrapper.__new__(ContainerWrapper)
         wrapper.ptr = ptr
         return wrapper
-    
+
     @property
     def rect(self) -> Rect:
         if self.ptr == NULL:
             return Rect(0, 0, 0, 0)
         return Rect.from_c(self.ptr.rect)
-    
+
     @property
     def body(self) -> Rect:
         if self.ptr == NULL:
             return Rect(0, 0, 0, 0)
         return Rect.from_c(self.ptr.body)
-    
+
     @property
     def content_size(self) -> Vec2:
         if self.ptr == NULL:
             return Vec2(0, 0)
         return Vec2.from_c(self.ptr.content_size)
-    
+
     @property
     def scroll(self) -> Vec2:
         if self.ptr == NULL:
             return Vec2(0, 0)
         return Vec2.from_c(self.ptr.scroll)
-    
+
     @property
     def open(self) -> int:
         if self.ptr == NULL:
@@ -1227,17 +1227,17 @@ cdef class ContainerWrapper:
 # Command wrapper classes
 cdef class BaseCommand:
     cdef mu_BaseCommand _cmd
-    
+
     @staticmethod
     cdef BaseCommand from_c(mu_BaseCommand cmd):
         cdef BaseCommand result = BaseCommand.__new__(BaseCommand)
         result._cmd = cmd
         return result
-    
+
     @property
     def type(self) -> int:
         return self._cmd.type
-    
+
     @property
     def size(self) -> int:
         return self._cmd.size
@@ -1245,21 +1245,21 @@ cdef class BaseCommand:
 
 cdef class RectCommand:
     cdef mu_RectCommand _cmd
-    
+
     @staticmethod
     cdef RectCommand from_c(mu_RectCommand cmd):
         cdef RectCommand result = RectCommand.__new__(RectCommand)
         result._cmd = cmd
         return result
-    
+
     @property
     def type(self) -> int:
         return self._cmd.base.type
-    
+
     @property
     def rect(self) -> Rect:
         return Rect.from_c(self._cmd.rect)
-    
+
     @property
     def color(self) -> Color:
         return Color.from_c(self._cmd.color)
@@ -1267,47 +1267,47 @@ cdef class RectCommand:
 
 cdef class TextCommand:
     cdef mu_TextCommand* _cmd
-    
+
     @staticmethod
     cdef TextCommand from_c(mu_TextCommand cmd):
         cdef TextCommand result = TextCommand.__new__(TextCommand)
         # This won't work with flexible array members, use from_ptr instead
         raise NotImplementedError("Use from_ptr for TextCommand with flexible array members")
-    
+
     @staticmethod
     cdef TextCommand from_ptr(mu_TextCommand* cmd):
         cdef TextCommand result = TextCommand.__new__(TextCommand)
         result._cmd = cmd
         return result
-    
+
     @property
     def type(self) -> int:
         return self._cmd.base.type
-    
+
     @property
     def font(self):
         return <object>self._cmd.font
-    
+
     @property
     def pos(self) -> Vec2:
         return Vec2.from_c(self._cmd.pos)
-    
+
     @property
     def color(self) -> Color:
         return Color.from_c(self._cmd.color)
-    
+
     @property
     def text(self) -> str:
         cdef const char* str_ptr
         cdef int length
         cdef bytes py_bytes
-        
+
         # Get the string pointer from the flexible array member
         # The str field is a flexible array member that points to the actual string data
         str_ptr = self._cmd.str
         if str_ptr == NULL:
             return ""
-        
+
         # Convert C string to Python string
         try:
             # Use strlen to get the proper length
@@ -1323,25 +1323,25 @@ cdef class TextCommand:
 
 cdef class IconCommand:
     cdef mu_IconCommand _cmd
-    
+
     @staticmethod
     cdef IconCommand from_c(mu_IconCommand cmd):
         cdef IconCommand result = IconCommand.__new__(IconCommand)
         result._cmd = cmd
         return result
-    
+
     @property
     def type(self) -> int:
         return self._cmd.base.type
-    
+
     @property
     def rect(self) -> Rect:
         return Rect.from_c(self._cmd.rect)
-    
+
     @property
     def icon_id(self) -> int:
         return self._cmd.id
-    
+
     @property
     def color(self) -> Color:
         return Color.from_c(self._cmd.color)
@@ -1349,17 +1349,17 @@ cdef class IconCommand:
 
 cdef class ClipCommand:
     cdef mu_ClipCommand _cmd
-    
+
     @staticmethod
     cdef ClipCommand from_c(mu_ClipCommand cmd):
         cdef ClipCommand result = ClipCommand.__new__(ClipCommand)
         result._cmd = cmd
         return result
-    
+
     @property
     def type(self) -> int:
         return self._cmd.base.type
-    
+
     @property
     def rect(self) -> Rect:
         return Rect.from_c(self._cmd.rect)
@@ -1367,13 +1367,13 @@ cdef class ClipCommand:
 
 cdef class JumpCommand:
     cdef mu_JumpCommand _cmd
-    
+
     @staticmethod
     cdef JumpCommand from_c(mu_JumpCommand cmd):
         cdef JumpCommand result = JumpCommand.__new__(JumpCommand)
         result._cmd = cmd
         return result
-    
+
     @property
     def type(self) -> int:
         return self._cmd.base.type
@@ -1496,12 +1496,12 @@ cdef class Textbox:
             raise MemoryError("Failed to allocate textbox buffer")
         self.buffer[0] = 0  # null terminate
         self.current_text = ""
-    
+
     def __dealloc__(self):
         if self.buffer != NULL:
             free(self.buffer)
             self.buffer = NULL
-    
+
     def update(self, Context ctx, int opt=0) -> tuple:
         """Update the textbox and return (result, new_text).
 
@@ -1529,11 +1529,11 @@ cdef class Textbox:
             self.current_text = ""
 
         return (result, self.current_text)
-    
+
     @property
     def text(self) -> str:
         return self.current_text
-    
+
     @text.setter
     def text(self, str value):
         """Set the textbox content with enhanced memory safety.

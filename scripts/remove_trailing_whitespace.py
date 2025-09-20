@@ -9,65 +9,86 @@ If no files are specified, processes all files in the current directory recursiv
 """
 
 import argparse
-import os
-import sys
 from pathlib import Path
+from typing import TypeAlias
+
+# types aliases
+PathLike: TypeAlias = Path | str
 
 
-def remove_trailing_whitespace(file_path):
-    """Remove trailing whitespace from a file."""
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+class FileCleaner:
+    VALID_EXTENSIONS: set[str] = {
+        ".py", ".pyx", ".pxd", ".pxi", 
+        ".c", ".h", ".cpp", ".hpp",
+        ".rs", ".go", "java", ".js", ".ts",
+    }
+    def __init__(self, file_path: PathLike, dry_run: bool= False):
+        self.file_path = Path(file_path)
+        self.dry_run = dry_run
+        self.n_lines_cleaned = 0
 
-        modified = False
-        cleaned_lines = []
+    def clean(self):
+        """main cleaning method"""
+        if self.can_clean():
+            self.remove_trailing_whitespace()
 
-        for line in lines:
-            # Remove trailing whitespace but preserve the line ending
-            if line.endswith('\n'):
-                cleaned_line = line.rstrip() + '\n'
+    def remove_trailing_whitespace(self) -> bool:
+        """Remove trailing whitespace from a file."""
+        try:
+            with open(self.file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+
+            modified = False
+            cleaned_lines = []
+
+            for line in lines:
+                # Remove trailing whitespace but preserve the line ending
+                if line.endswith('\n'):
+                    cleaned_line = line.rstrip() + '\n'
+                else:
+                    cleaned_line = line.rstrip()
+
+                if cleaned_line != line:
+                    self.n_lines_cleaned += 1
+                    modified = True
+
+                cleaned_lines.append(cleaned_line)
+
+            if modified:
+                prefix = ""
+                if not self.dry_run:
+                    with open(self.file_path, 'w', encoding='utf-8') as f:
+                        f.writelines(cleaned_lines)
+                else:
+                    prefix = "DRY-RUN-"
+                print(f"{prefix}Cleaned: {self.n_lines_cleaned} lines in {self.file_path}")
+                return True
             else:
-                cleaned_line = line.rstrip()
+                return False
 
-            if cleaned_line != line:
-                modified = True
-
-            cleaned_lines.append(cleaned_line)
-
-        if modified:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.writelines(cleaned_lines)
-            print(f"Cleaned: {file_path}")
-            return True
-        else:
+        except IOError as e:
+            print(f"Error processing {self.file_path}: {e}")
             return False
 
-    except Exception as e:
-        print(f"Error processing {file_path}: {e}")
+    def can_clean(self) -> bool:
+        """Check if file should be processed (text files only)."""
+
+        if not self.file_path.is_file():
+            return False
+
+        # Skip hidden files and directories
+        if any(part.startswith('.') for part in self.file_path.parts):
+            return False
+
+        # Skip build directories
+        skip_dirs = {'build', '__pycache__', '.git', 'node_modules', 'venv', '.venv'}
+        if any(part in skip_dirs for part in self.file_path.parts):
+            return False
+
+        if self.file_path.suffix.lower() in self.VALID_EXTENSIONS:
+            return True
+
         return False
-
-
-def should_process_file(file_path):
-    """Check if file should be processed (text files only)."""
-    # Skip binary files and common non-text extensions
-    skip_extensions = {'.so', '.o', '.pyc', '.pyo', '.pyd', '.exe', '.dll',
-                      '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.zip',
-                      '.tar', '.gz', '.bz2', '.7z', '.pdf', '.doc', '.docx'}
-
-    if file_path.suffix.lower() in skip_extensions:
-        return False
-
-    # Skip hidden files and directories
-    if any(part.startswith('.') for part in file_path.parts):
-        return False
-
-    # Skip build directories
-    skip_dirs = {'build', '__pycache__', '.git', 'node_modules', 'venv', '.venv'}
-    if any(part in skip_dirs for part in file_path.parts):
-        return False
-
-    return True
 
 
 def main():
@@ -81,9 +102,7 @@ def main():
         files_to_process = [Path(f) for f in args.files]
     else:
         # Process all files recursively
-        files_to_process = [f for f in Path('.').rglob('*') if f.is_file() and should_process_file(f)]
-
-    modified_count = 0
+        files_to_process = [FileCleaner(f).clean() for f in Path('.').rglob('*')]
 
     for file_path in files_to_process:
         if not file_path.exists():
@@ -93,25 +112,11 @@ def main():
         if not file_path.is_file():
             continue
 
-        if args.dry_run:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-
-                has_trailing_ws = any(line.rstrip() != line.rstrip('\n') for line in lines)
-                if has_trailing_ws:
-                    print(f"Would clean: {file_path}")
-                    modified_count += 1
-            except Exception as e:
-                print(f"Error checking {file_path}: {e}")
-        else:
-            if remove_trailing_whitespace(file_path):
-                modified_count += 1
-
-    if args.dry_run:
-        print(f"\nDry run complete. {modified_count} files would be modified.")
-    else:
-        print(f"\nComplete. {modified_count} files modified.")
+        try:
+            cleaner = FileCleaner(file_path, dry_run=args.dry_run)
+            cleaner.clean()
+        except IOError as e:
+            print(f"Error processing {file_path}: {e}")
 
 
 if __name__ == '__main__':
