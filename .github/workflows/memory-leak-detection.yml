@@ -1,13 +1,13 @@
 name: Memory Leak Detection
+on: [workflow_dispatch]
 
-on:
-  push:
-    branches: [ master, main, develop ]
-  pull_request:
-    branches: [ master, main, develop ]
-  schedule:
-    # Run nightly at 2 AM UTC
-    - cron: '0 2 * * *'
+  # push:
+  #   branches: [ master, main, develop ]
+  # pull_request:
+  #   branches: [ master, main, develop ]
+  # schedule:
+  #   # Run nightly at 2 AM UTC
+  #   - cron: '0 2 * * *'
 
 jobs:
   memory-leak-detection:
