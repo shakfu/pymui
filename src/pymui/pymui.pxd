@@ -17,7 +17,7 @@ cdef extern from "microui.h":
     cdef const int MU_MAX_FMT               = 127
     cdef const char* MU_REAL_FMT            = "%.3g"
     cdef const char* MU_SLIDER_FMT          = "%.2f"
-    
+
     # Type definitions
     ctypedef float MU_REAL
 
@@ -25,7 +25,7 @@ cdef extern from "microui.h":
     cdef enum:
         MU_CLIP_PART = 1
         MU_CLIP_ALL
-    
+
     cdef enum:
         MU_COMMAND_JUMP = 1
         MU_COMMAND_CLIP
@@ -33,7 +33,7 @@ cdef extern from "microui.h":
         MU_COMMAND_TEXT
         MU_COMMAND_ICON
         MU_COMMAND_MAX
-    
+
     cdef enum:
         MU_COLOR_TEXT
         MU_COLOR_BORDER
@@ -50,19 +50,19 @@ cdef extern from "microui.h":
         MU_COLOR_SCROLLBASE
         MU_COLOR_SCROLLTHUMB
         MU_COLOR_MAX
-    
+
     cdef enum:
         MU_ICON_CLOSE = 1
         MU_ICON_CHECK
         MU_ICON_COLLAPSED
         MU_ICON_EXPANDED
         MU_ICON_MAX
-    
+
     cdef enum:
         MU_RES_ACTIVE       = (1 << 0)
         MU_RES_SUBMIT       = (1 << 1)
         MU_RES_CHANGE       = (1 << 2)
-    
+
     cdef enum:
         MU_OPT_ALIGNCENTER  = (1 << 0)
         MU_OPT_ALIGNRIGHT   = (1 << 1)
@@ -77,19 +77,19 @@ cdef extern from "microui.h":
         MU_OPT_POPUP        = (1 << 10)
         MU_OPT_CLOSED       = (1 << 11)
         MU_OPT_EXPANDED     = (1 << 12)
-    
+
     cdef enum:
         MU_MOUSE_LEFT       = (1 << 0)
         MU_MOUSE_RIGHT      = (1 << 1)
         MU_MOUSE_MIDDLE     = (1 << 2)
-    
+
     cdef enum:
         MU_KEY_SHIFT        = (1 << 0)
         MU_KEY_CTRL         = (1 << 1)
         MU_KEY_ALT          = (1 << 2)
         MU_KEY_BACKSPACE    = (1 << 3)
         MU_KEY_RETURN       = (1 << 4)
-    
+
     # Forward declarations
     ctypedef struct mu_Context
     ctypedef unsigned mu_Id
@@ -100,54 +100,54 @@ cdef extern from "microui.h":
     ctypedef struct mu_Vec2:
         int x
         int y
-    
+
     ctypedef struct mu_Rect:
         int x
         int y
         int w
         int h
-    
+
     ctypedef struct mu_Color:
         unsigned char r
         unsigned char g
         unsigned char b
         unsigned char a
-    
+
     ctypedef struct mu_PoolItem:
         mu_Id id
         int last_update
-    
+
     # Command structs
     ctypedef struct mu_BaseCommand:
         int type
         int size
-    
+
     ctypedef struct mu_JumpCommand:
         mu_BaseCommand base
         void* dst
-    
+
     ctypedef struct mu_ClipCommand:
         mu_BaseCommand base
         mu_Rect rect
-    
+
     ctypedef struct mu_RectCommand:
         mu_BaseCommand base
         mu_Rect rect
         mu_Color color
-    
+
     ctypedef struct mu_TextCommand:
         mu_BaseCommand base
         mu_Font font
         mu_Vec2 pos
         mu_Color color
         char str[1]
-    
+
     ctypedef struct mu_IconCommand:
         mu_BaseCommand base
         mu_Rect rect
         int id
         mu_Color color
-    
+
     # Command union
     ctypedef union mu_Command:
         int type
@@ -157,7 +157,7 @@ cdef extern from "microui.h":
         mu_RectCommand rect
         mu_TextCommand text
         mu_IconCommand icon
-    
+
     # Layout struct
     ctypedef struct mu_Layout:
         mu_Rect body
@@ -171,7 +171,7 @@ cdef extern from "microui.h":
         int next_row
         int next_type
         int indent
-    
+
     # Container struct
     ctypedef struct mu_Container:
         mu_Command* head
@@ -182,7 +182,7 @@ cdef extern from "microui.h":
         mu_Vec2 scroll
         int zindex
         int open
-    
+
     # Style struct
     ctypedef struct mu_Style:
         mu_Font font
@@ -194,7 +194,7 @@ cdef extern from "microui.h":
         int scrollbar_size
         int thumb_size
         mu_Color colors[MU_COLOR_MAX]
-    
+
     # Stack structs
     ctypedef struct command_list_stack:
         int idx
@@ -263,12 +263,12 @@ cdef extern from "microui.h":
         int key_down
         int key_pressed
         char input_text[32]
-    
+
     # Utility functions
     mu_Vec2 mu_vec2(int x, int y)
     mu_Rect mu_rect(int x, int y, int w, int h)
     mu_Color mu_color(int r, int g, int b, int a)
-    
+
     # Core functions
     void mu_init(mu_Context* ctx)
     void mu_begin(mu_Context* ctx)
@@ -284,12 +284,12 @@ cdef extern from "microui.h":
     mu_Container* mu_get_current_container(mu_Context* ctx)
     mu_Container* mu_get_container(mu_Context* ctx, const char* name)
     void mu_bring_to_front(mu_Context* ctx, mu_Container* cnt)
-    
+
     # Pool functions
     int mu_pool_init(mu_Context* ctx, mu_PoolItem* items, int len, mu_Id id)
     int mu_pool_get(mu_Context* ctx, mu_PoolItem* items, int len, mu_Id id)
     void mu_pool_update(mu_Context* ctx, mu_PoolItem* items, int idx)
-    
+
     # Input functions
     void mu_input_mousemove(mu_Context* ctx, int x, int y)
     void mu_input_mousedown(mu_Context* ctx, int x, int y, int btn)
@@ -298,7 +298,7 @@ cdef extern from "microui.h":
     void mu_input_keydown(mu_Context* ctx, int key)
     void mu_input_keyup(mu_Context* ctx, int key)
     void mu_input_text(mu_Context* ctx, const char* text)
-    
+
     # Drawing functions
     mu_Command* mu_push_command(mu_Context* ctx, int type, int size)
     int mu_next_command(mu_Context* ctx, mu_Command** cmd)
@@ -307,7 +307,7 @@ cdef extern from "microui.h":
     void mu_draw_box(mu_Context* ctx, mu_Rect rect, mu_Color color)
     void mu_draw_text(mu_Context* ctx, mu_Font font, const char* str, int len, mu_Vec2 pos, mu_Color color)
     void mu_draw_icon(mu_Context* ctx, int id, mu_Rect rect, mu_Color color)
-    
+
     # Layout functions
     void mu_layout_row(mu_Context* ctx, int items, const int* widths, int height)
     void mu_layout_width(mu_Context* ctx, int width)
@@ -316,22 +316,22 @@ cdef extern from "microui.h":
     void mu_layout_end_column(mu_Context* ctx)
     void mu_layout_set_next(mu_Context* ctx, mu_Rect r, int relative)
     mu_Rect mu_layout_next(mu_Context* ctx)
-    
+
     # Control functions
     void mu_draw_control_frame(mu_Context* ctx, mu_Id id, mu_Rect rect, int colorid, int opt)
     void mu_draw_control_text(mu_Context* ctx, const char* str, mu_Rect rect, int colorid, int opt)
     int mu_mouse_over(mu_Context* ctx, mu_Rect rect)
     void mu_update_control(mu_Context* ctx, mu_Id id, mu_Rect rect, int opt)
-    
+
     # Macro functions
     int mu_button(mu_Context* ctx, const char* label)
     int mu_textbox(mu_Context* ctx, char* buf, int bufsz)
     int mu_slider(mu_Context* ctx, mu_Real* value, mu_Real lo, mu_Real hi)
-    int mu_number(mu_Context* ctx, mu_Real* value, mu_Real step)      
-    int mu_header(mu_Context* ctx, const char* label)            
-    void mu_begin_treenode(mu_Context* ctx, const char* label)    
+    int mu_number(mu_Context* ctx, mu_Real* value, mu_Real step)
+    int mu_header(mu_Context* ctx, const char* label)
+    void mu_begin_treenode(mu_Context* ctx, const char* label)
     void mu_begin_window(mu_Context* ctx, const char* title, mu_Rect rect)
-    void mu_begin_panel(mu_Context* ctx, const char* name)        
+    void mu_begin_panel(mu_Context* ctx, const char* name)
 
     # Widget functions
     void mu_text(mu_Context* ctx, const char* text)
@@ -369,13 +369,13 @@ cdef extern from "SDL2/SDL.h":
     cdef const int SDL_BUTTON_RIGHT
     cdef const int SDL_BUTTON_MIDDLE
 
-    cdef const int SDLK_LSHIFT   
-    cdef const int SDLK_RSHIFT   
-    cdef const int SDLK_LCTRL    
-    cdef const int SDLK_RCTRL    
-    cdef const int SDLK_LALT     
-    cdef const int SDLK_RALT     
-    cdef const int SDLK_RETURN   
+    cdef const int SDLK_LSHIFT
+    cdef const int SDLK_RSHIFT
+    cdef const int SDLK_LCTRL
+    cdef const int SDLK_RCTRL
+    cdef const int SDLK_LALT
+    cdef const int SDLK_RALT
+    cdef const int SDLK_RETURN
     cdef const int SDLK_BACKSPACE
 
     cdef void SDL_INIT_EVERYTHING()
