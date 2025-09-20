@@ -21,38 +21,38 @@ PyMUI is a Cython-based Python wrapper for the [microui](https://github.com/rxi/
 ### High-Level Overview
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Python App    │    │   Demo/Tests    │    │   Scripts       │
-│                 │    │                 │    │                 │
-│  - User Code    │    │  - SDL Demo     │    │  - Benchmarks   │
-│  - UI Logic     │    │  - Test Suite   │    │  - Memory Test  │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         └───────────────────────┼───────────────────────┘
-                                 │
-                    ┌─────────────────┐
-                    │   PyMUI Cython  │
-                    │   Wrapper       │
-                    │                 │
-                    │  - pymui.pyx    │
-                    │  - __init__.py  │
-                    └─────────────────┘
-                                 │
-                    ┌─────────────────┐
-                    │   microui C     │
-                    │   Library       │
-                    │                 │
-                    │  - microui.c    │
-                    │  - microui.h    │
-                    └─────────────────┘
-                                 │
-                    ┌─────────────────┐
-                    │   Platform      │
-                    │   Renderer      │
-                    │                 │
-                    │  - SDL2         │
-                    │  - OpenGL       │
-                    └─────────────────┘
+        
+   Python App           Demo/Tests           Scripts       
+                                                           
+  - User Code          - SDL Demo           - Benchmarks   
+  - UI Logic           - Test Suite         - Memory Test  
+        
+                                                       
+         
+                                 
+                    
+                       PyMUI Cython  
+                       Wrapper       
+                                     
+                      - pymui.pyx    
+                      - __init__.py  
+                    
+                                 
+                    
+                       microui C     
+                       Library       
+                                     
+                      - microui.c    
+                      - microui.h    
+                    
+                                 
+                    
+                       Platform      
+                       Renderer      
+                                     
+                      - SDL2         
+                      - OpenGL       
+                    
 ```
 
 ### Layer Responsibilities
@@ -179,25 +179,25 @@ The widget system follows immediate-mode principles:
 
 ```
 1. ctx.begin()
-   ├── Initialize frame state
-   ├── Reset widget counters
-   └── Clear previous frame data
+    Initialize frame state
+    Reset widget counters
+    Clear previous frame data
 
 2. Widget Operations
-   ├── Layout calculations
-   ├── Event processing
-   ├── State updates
-   └── Rendering commands
+    Layout calculations
+    Event processing
+    State updates
+    Rendering commands
 
 3. ctx.end()
-   ├── Finalize layout
-   ├── Process events
-   └── Prepare render data
+    Finalize layout
+    Process events
+    Prepare render data
 
 4. Renderer (External)
-   ├── Process render commands
-   ├── Draw to screen
-   └── Present frame
+    Process render commands
+    Draw to screen
+    Present frame
 ```
 
 ### Event Flow
@@ -242,11 +242,11 @@ Python Objects → Cython Wrapper → C Structures → microui
 
 ```
 Python Heap:        Cython Objects (Vec2, Rect, Color, etc.)
-                           │
-                           ▼
+                           
+                           
 C Stack:           microui context structures
-                           │
-                           ▼
+                           
+                           
 C Static:          Font atlas, style data
 ```
 
@@ -258,14 +258,14 @@ The project uses a sophisticated hybrid build system:
 
 ```
 CMake (C/C++ Build)
-├── microui compilation
-├── SDL renderer compilation
-└── Cython code generation
+ microui compilation
+ SDL renderer compilation
+ Cython code generation
 
 Python Build (scikit-build-core)
-├── Cython compilation
-├── Extension module linking
-└── Package distribution
+ Cython compilation
+ Extension module linking
+ Package distribution
 ```
 
 ### Build Dependencies

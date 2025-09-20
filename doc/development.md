@@ -68,21 +68,21 @@ uv run pytest tests/test_memory_safety.py  # Memory safety tests
 
 ```
 pymui/
-├── src/pymui/          # Main package
-│   ├── pymui.pyx      # Cython wrapper
-│   └── __init__.py    # Python package
-├── microui/           # Upstream C library
-│   ├── microui.c
-│   ├── microui.h
-│   └── sdl/          # SDL renderer
-├── tests/            # Test suite
-│   ├── test_*.py     # Unit tests
-│   └── *demo*.py     # Demo applications
-├── scripts/          # Development scripts
-│   ├── benchmark.py  # Performance testing
-│   └── memory_leak_test.py  # Memory testing
-├── doc/              # Documentation
-└── .github/          # CI/CD workflows
+ src/pymui/          # Main package
+    pymui.pyx      # Cython wrapper
+    __init__.py    # Python package
+ microui/           # Upstream C library
+    microui.c
+    microui.h
+    sdl/          # SDL renderer
+ tests/            # Test suite
+    test_*.py     # Unit tests
+    *demo*.py     # Demo applications
+ scripts/          # Development scripts
+    benchmark.py  # Performance testing
+    memory_leak_test.py  # Memory testing
+ doc/              # Documentation
+ .github/          # CI/CD workflows
 ```
 
 ### Adding New Features
