@@ -1,0 +1,33 @@
+.DS_Store
+
+# editor config
+.clangd
+.vscode
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+build/
+dist/
+sdist/
+
+# Environments
+.env
+.venv
+
+# cache
+.*_cache/
+*.egg-info
+.ropeproject
+.hypothesis
+
+# claude
+.claude
+CLAUDE.md
+screenshots

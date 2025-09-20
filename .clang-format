@@ -1,0 +1,22 @@
+---
+# see: https://clang.llvm.org/docs/ClangFormatStyleOptions.html
+BasedOnStyle:  WebKit
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AlignAfterOpenBracket: BlockIndent
+AlignArrayOfStructures: Left
+AlignOperands: AlignAfterOperator
+AlignTrailingComments: Always
+MaxEmptyLinesToKeep: 2
+PointerAlignment: Left
+RemoveEmptyLinesInUnwrappedLines: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCaseColon: false
+#AllowShortIfStatementsOnASingleLine: false
+AlignConsecutiveMacros: AcrossEmptyLines
+AlignConsecutiveBitFields: AcrossEmptyLines
+AlignConsecutiveAssignments: AcrossEmptyLines
+---
+...
+

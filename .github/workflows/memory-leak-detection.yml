@@ -1,0 +1,218 @@
+name: Memory Leak Detection
+
+on:
+  push:
+    branches: [ master, main, develop ]
+  pull_request:
+    branches: [ master, main, develop ]
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  memory-leak-detection:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libsdl2-dev \
+          libsdl2-image-dev \
+          libsdl2-mixer-dev \
+          libsdl2-ttf-dev \
+          build-essential \
+          cmake \
+          ninja-build
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install uv
+        uv sync --dev
+        # Install psutil for memory monitoring
+        uv add psutil
+
+    - name: Build pymui
+      run: |
+        uv build
+
+    - name: Install built package
+      run: |
+        uv pip install dist/*.whl
+
+    - name: Run memory leak detection
+      run: |
+        uv run python scripts/memory_leak_test.py --verbose
+      env:
+        # Ensure proper cleanup and error reporting
+        PYTHONFAULTHANDLER: 1
+
+    - name: Run memory leak detection with higher iterations
+      if: github.event_name == 'schedule'  # Only on nightly runs
+      run: |
+        uv run python scripts/memory_leak_test.py --verbose --iterations 2000
+      env:
+        PYTHONFAULTHANDLER: 1
+
+    - name: Run performance benchmarks with memory monitoring
+      run: |
+        # Run performance tests to catch performance-related memory issues
+        uv run python scripts/benchmark.py
+
+    - name: Upload memory leak results
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: memory-leak-results-python-${{ matrix.python-version }}
+        path: |
+          memory_*.log
+          core.*
+        retention-days: 7
+
+  valgrind-analysis:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || contains(github.event.pull_request.title, '[valgrind]')
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install system dependencies including Valgrind
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libsdl2-dev \
+          libsdl2-image-dev \
+          libsdl2-mixer-dev \
+          libsdl2-ttf-dev \
+          build-essential \
+          cmake \
+          ninja-build \
+          valgrind \
+          python3-dev
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install uv
+        uv sync --dev
+        uv add psutil
+
+    - name: Build pymui with debug symbols
+      run: |
+        # Build with debug information for better Valgrind reports
+        export CFLAGS="-g -O0"
+        export CXXFLAGS="-g -O0"
+        uv build
+
+    - name: Install built package
+      run: |
+        uv pip install dist/*.whl
+
+    - name: Create Valgrind test script
+      run: |
+        cat > valgrind_test.py << 'EOF'
+        #!/usr/bin/env python3
+        """Simple test script for Valgrind analysis."""
+        import sys
+        from pathlib import Path
+
+        ROOTDIR = Path(__file__).parent / "src"
+        sys.path.insert(0, str(ROOTDIR))
+
+        import pymui
+
+        def test_basic_operations():
+            """Test basic pymui operations under Valgrind."""
+            # Test Context lifecycle
+            for i in range(10):
+                ctx = pymui.Context()
+                ctx.begin()
+
+                # Basic UI operations
+                ctx.text(f"Text {i}")
+
+                if ctx.begin_window(f"Window {i}", pymui.Rect(10, 10, 200, 150)):
+                    ctx.label(f"Label {i}")
+                    ctx.button(f"Button {i}")
+                    ctx.end_window()
+
+                ctx.end()
+                del ctx
+
+            # Test object creation
+            for i in range(100):
+                vec = pymui.Vec2(i, i + 1)
+                rect = pymui.Rect(i, i + 1, i + 2, i + 3)
+                color = pymui.Color(i % 256, (i + 1) % 256, (i + 2) % 256)
+                del vec, rect, color
+
+            # Test textbox operations
+            for i in range(50):
+                tb = pymui.Textbox(64)
+                tb.text = f"Test {i}"
+                text = tb.text
+                del tb
+
+        if __name__ == "__main__":
+            test_basic_operations()
+            print("Valgrind test completed")
+        EOF
+
+    - name: Run Valgrind memory analysis
+      run: |
+        valgrind \
+          --tool=memcheck \
+          --leak-check=full \
+          --show-leak-kinds=all \
+          --track-origins=yes \
+          --verbose \
+          --log-file=valgrind_output.log \
+          --error-exitcode=1 \
+          python valgrind_test.py
+
+    - name: Check Valgrind results
+      run: |
+        echo "=== Valgrind Results ==="
+        cat valgrind_output.log
+
+        # Check for memory leaks
+        if grep -q "definitely lost" valgrind_output.log; then
+          echo "❌ Memory leaks detected by Valgrind!"
+          exit 1
+        fi
+
+        if grep -q "possibly lost" valgrind_output.log; then
+          echo "⚠️  Possible memory leaks detected by Valgrind"
+          # Don't fail on possible leaks, just warn
+        fi
+
+        echo "✅ Valgrind analysis completed"
+
+    - name: Upload Valgrind results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: valgrind-analysis-results
+        path: valgrind_output.log
+        retention-days: 14
