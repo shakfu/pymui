@@ -1,9 +1,9 @@
 [project]
 name = "pymui"
-version = "0.1.0"
+version = "0.2.0"
 description = "A cython wrapper for microui"
 readme = "README.md"
-authors = [{ name = "rxi", email = "rxi@rxi.github.io" }]
+authors = [{ name = "Shakeeb Alireza", email = "shakfu@me.org" }]
 requires-python = ">=3.10"
 dependencies = [
     "pysdl2>=0.9.17",

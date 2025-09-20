@@ -1,4 +1,4 @@
-.phony: all build clean demo test test-all test-safe memory-test performance-test
+.phony: all build clean demo test test-safe test-all memory-test performance-test
 
 all: build
 
