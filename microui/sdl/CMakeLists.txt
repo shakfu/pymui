@@ -37,6 +37,7 @@ target_compile_options(
     PUBLIC
     -Wall
     -pedantic
+    -fPIC
 )
 
 target_link_directories(
@@ -51,6 +52,7 @@ target_link_libraries(
     PUBLIC
     microui
     "$<$<PLATFORM_ID:Darwin>:-framework OpenGL>"
+    "$<$<PLATFORM_ID:Linux>:-lGL>"
     -lSDL2
 )
 

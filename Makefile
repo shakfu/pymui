@@ -4,9 +4,7 @@ all: build
 
 
 build: clean
-	@mkdir -p build && cd build && \
-		cmake .. && \
-		cmake --build . --config Release
+	@uv pip install -e .
 
 clean:
 	@rm -rf build src/pymui/pymui.*.so

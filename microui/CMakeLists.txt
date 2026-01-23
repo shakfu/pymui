@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.29)
+cmake_minimum_required(VERSION 3.28)
 
 project(libmicroui VERSION 2.0.2)
 
@@ -19,6 +19,7 @@ target_compile_options(
     PUBLIC
     -Wall
     -pedantic
+    -fPIC
 )
 
 target_include_directories(

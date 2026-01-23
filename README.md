@@ -430,9 +430,10 @@ colors = [
 ### Prerequisites
 
 - Python 3.10 or higher
-- CMake 3.15+
+- CMake 3.28+
 - C compiler (GCC, Clang, or MSVC)
 - SDL2 development libraries (for demos)
+- OpenGL development libraries (Linux: `libgl-dev`, macOS: included)
 
 ### Building from Source
 
