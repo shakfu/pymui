@@ -1,10 +1,30 @@
-.phony: all build clean demo test test-safe test-all memory-test performance-test
+.phony: all build lint format typecheck check publish publish-test \
+		clean demo test test-safe test-all memory-test performance-test
+		
 
 all: build
 
 
 build: clean
 	@uv pip install -e .
+
+lint:
+	@uv run ruff check --fix src/
+
+format:
+	@uv run ruff format src/
+
+typecheck:
+	@uv run mypy src/
+
+check:
+	@uv run twine check dist/*
+
+publish-test:
+	@uv run twine upload -r testpypi dist/*
+
+publish:
+	@uv run twine upload dist/*
 
 clean:
 	@rm -rf build src/pymui/pymui.*.so

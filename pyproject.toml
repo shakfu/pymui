@@ -22,6 +22,8 @@ dev = [
     "pytest>=8.4.1",
     "hypothesis>=6.0.0",
     "psutil>=5.9.0",
+    "ruff>=0.14.14",
+    "mypy>=1.19.1",
 ]
 
 [tool.pytest.ini_options]
