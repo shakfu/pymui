@@ -1,13 +1,13 @@
 name: Memory Leak Detection
-on: [workflow_dispatch]
-
-  # push:
-  #   branches: [ master, main, develop ]
-  # pull_request:
-  #   branches: [ master, main, develop ]
-  # schedule:
-  #   # Run nightly at 2 AM UTC
-  #   - cron: '0 2 * * *'
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master, main, develop ]
+  pull_request:
+    branches: [ master, main, develop ]
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
 
 jobs:
   memory-leak-detection:
@@ -22,7 +22,7 @@ jobs:
         submodules: recursive
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -75,7 +75,7 @@ jobs:
 
     - name: Upload memory leak results
       if: failure()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: memory-leak-results-python-${{ matrix.python-version }}
         path: |
@@ -93,7 +93,7 @@ jobs:
         submodules: recursive
 
     - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
 
@@ -196,22 +196,22 @@ jobs:
         echo "=== Valgrind Results ==="
         cat valgrind_output.log
 
-        # Check for memory leaks
-        if grep -q "definitely lost" valgrind_output.log; then
-          echo "❌ Memory leaks detected by Valgrind!"
+        # Valgrind always prints these lines; only a non-zero count is a leak.
+        if grep -qE "definitely lost: [1-9][0-9,]* bytes" valgrind_output.log; then
+          echo "FAIL: memory leaks detected by Valgrind"
           exit 1
         fi
 
-        if grep -q "possibly lost" valgrind_output.log; then
-          echo "⚠️  Possible memory leaks detected by Valgrind"
+        if grep -qE "possibly lost: [1-9][0-9,]* bytes" valgrind_output.log; then
+          echo "WARNING: possible memory leaks detected by Valgrind"
           # Don't fail on possible leaks, just warn
         fi
 
-        echo "✅ Valgrind analysis completed"
+        echo "OK: Valgrind analysis completed"
 
     - name: Upload Valgrind results
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: valgrind-analysis-results
         path: valgrind_output.log
