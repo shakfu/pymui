@@ -85,7 +85,7 @@ jobs:
 
   valgrind-analysis:
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || contains(github.event.pull_request.title, '[valgrind]')
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.title, '[valgrind]')
 
     steps:
     - uses: actions/checkout@v7
@@ -129,67 +129,18 @@ jobs:
       run: |
         uv pip install dist/*.whl
 
-    - name: Create Valgrind test script
-      run: |
-        cat > valgrind_test.py << 'EOF'
-        #!/usr/bin/env python3
-        """Simple test script for Valgrind analysis."""
-        import sys
-        from pathlib import Path
-
-        ROOTDIR = Path(__file__).parent / "src"
-        sys.path.insert(0, str(ROOTDIR))
-
-        import pymui
-
-        def test_basic_operations():
-            """Test basic pymui operations under Valgrind."""
-            # Test Context lifecycle
-            for i in range(10):
-                ctx = pymui.Context()
-                ctx.begin()
-
-                # Basic UI operations
-                ctx.text(f"Text {i}")
-
-                if ctx.begin_window(f"Window {i}", pymui.Rect(10, 10, 200, 150)):
-                    ctx.label(f"Label {i}")
-                    ctx.button(f"Button {i}")
-                    ctx.end_window()
-
-                ctx.end()
-                del ctx
-
-            # Test object creation
-            for i in range(100):
-                vec = pymui.Vec2(i, i + 1)
-                rect = pymui.Rect(i, i + 1, i + 2, i + 3)
-                color = pymui.Color(i % 256, (i + 1) % 256, (i + 2) % 256)
-                del vec, rect, color
-
-            # Test textbox operations
-            for i in range(50):
-                tb = pymui.Textbox(64)
-                tb.text = f"Test {i}"
-                text = tb.text
-                del tb
-
-        if __name__ == "__main__":
-            test_basic_operations()
-            print("Valgrind test completed")
-        EOF
-
     - name: Run Valgrind memory analysis
       run: |
-        valgrind \
+        uv run valgrind \
           --tool=memcheck \
           --leak-check=full \
           --show-leak-kinds=all \
           --track-origins=yes \
-          --verbose \
           --log-file=valgrind_output.log \
-          --error-exitcode=1 \
-          python valgrind_test.py
+          python scripts/valgrind_test.py
+      env:
+        # pymalloc's arena reuse hides per-object allocations from memcheck.
+        PYTHONMALLOC: malloc
 
     - name: Check Valgrind results
       run: |
