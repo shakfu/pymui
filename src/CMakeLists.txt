@@ -42,3 +42,4 @@ target_link_libraries(
     microui_sdl
 )
 
+install(TARGETS pymui DESTINATION pymui)
