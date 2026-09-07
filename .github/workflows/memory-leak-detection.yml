@@ -15,6 +15,10 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
+    env:
+      # Without this uv reads .python-version and runs 3.13 in every leg.
+      UV_PYTHON: ${{ matrix.python-version }}
+      UV_PYTHON_PREFERENCE: only-system
 
     steps:
     - uses: actions/checkout@v7
@@ -45,6 +49,12 @@ jobs:
         uv sync --dev
         # Install psutil for memory monitoring
         uv add psutil
+
+    - name: Verify interpreter
+      run: |
+        got=$(uv run --no-sync python -c "import sys; print('%d.%d' % sys.version_info[:2])")
+        echo "venv python: $got"
+        [ "$got" = "${{ matrix.python-version }}" ] || { echo "FAIL: expected ${{ matrix.python-version }}"; exit 1; }
 
     - name: Build pymui
       run: |
@@ -86,6 +96,13 @@ jobs:
   valgrind-analysis:
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.title, '[valgrind]')
+    env:
+      # Valgrind reports carry file:line only when the extension keeps symbols.
+      CFLAGS: "-g -O0"
+      CXXFLAGS: "-g -O0"
+      # Without this uv reads .python-version and ignores setup-python.
+      UV_PYTHON: "3.11"
+      UV_PYTHON_PREFERENCE: only-system
 
     steps:
     - uses: actions/checkout@v7
@@ -118,11 +135,14 @@ jobs:
         uv sync --dev
         uv add psutil
 
+    - name: Verify interpreter
+      run: |
+        got=$(uv run --no-sync python -c "import sys; print('%d.%d' % sys.version_info[:2])")
+        echo "venv python: $got"
+        [ "$got" = "3.11" ] || { echo "FAIL: expected 3.11"; exit 1; }
+
     - name: Build pymui with debug symbols
       run: |
-        # Build with debug information for better Valgrind reports
-        export CFLAGS="-g -O0"
-        export CXXFLAGS="-g -O0"
         uv build
 
     - name: Install built package
@@ -131,7 +151,7 @@ jobs:
 
     - name: Run Valgrind memory analysis
       run: |
-        uv run valgrind \
+        uv run --no-sync valgrind \
           --tool=memcheck \
           --leak-check=full \
           --show-leak-kinds=all \
@@ -144,21 +164,7 @@ jobs:
 
     - name: Check Valgrind results
       run: |
-        echo "=== Valgrind Results ==="
-        cat valgrind_output.log
-
-        # Valgrind always prints these lines; only a non-zero count is a leak.
-        if grep -qE "definitely lost: [1-9][0-9,]* bytes" valgrind_output.log; then
-          echo "FAIL: memory leaks detected by Valgrind"
-          exit 1
-        fi
-
-        if grep -qE "possibly lost: [1-9][0-9,]* bytes" valgrind_output.log; then
-          echo "WARNING: possible memory leaks detected by Valgrind"
-          # Don't fail on possible leaks, just warn
-        fi
-
-        echo "OK: Valgrind analysis completed"
+        uv run --no-sync python scripts/check_valgrind.py valgrind_output.log
 
     - name: Upload Valgrind results
       if: always()
