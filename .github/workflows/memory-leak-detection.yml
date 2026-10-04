@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     env:
       # Without this uv reads .python-version and runs 3.13 in every leg.
       UV_PYTHON: ${{ matrix.python-version }}
@@ -40,7 +40,8 @@ jobs:
           libsdl2-ttf-dev \
           build-essential \
           cmake \
-          ninja-build
+          ninja-build \
+          fonts-dejavu-core
 
     - name: Install Python dependencies
       run: |
@@ -64,9 +65,17 @@ jobs:
       run: |
         uv pip install dist/*.whl
 
+    # --no-sync: a plain `uv run` reinstalls the editable project over the wheel.
+    - name: Run test suite
+      run: |
+        uv run --no-sync pytest -q
+      env:
+        SDL_VIDEODRIVER: dummy
+        PYTHONFAULTHANDLER: 1
+
     - name: Run memory leak detection
       run: |
-        uv run python scripts/memory_leak_test.py --verbose
+        uv run --no-sync python scripts/memory_leak_test.py --verbose
       env:
         # Ensure proper cleanup and error reporting
         PYTHONFAULTHANDLER: 1
@@ -74,14 +83,14 @@ jobs:
     - name: Run memory leak detection with higher iterations
       if: github.event_name == 'schedule'  # Only on nightly runs
       run: |
-        uv run python scripts/memory_leak_test.py --verbose --iterations 2000
+        uv run --no-sync python scripts/memory_leak_test.py --verbose --iterations 2000
       env:
         PYTHONFAULTHANDLER: 1
 
     - name: Run performance benchmarks with memory monitoring
       run: |
         # Run performance tests to catch performance-related memory issues
-        uv run python scripts/benchmark.py
+        uv run --no-sync python scripts/benchmark.py
 
     - name: Upload memory leak results
       if: failure()

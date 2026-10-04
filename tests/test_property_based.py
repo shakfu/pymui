@@ -6,12 +6,7 @@ These tests use property-based testing to find edge cases and ensure
 robustness across a wide range of inputs.
 """
 
-import sys
-from pathlib import Path
 
-# Add src to path for imports
-ROOTDIR = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(ROOTDIR))
 
 try:
     from hypothesis import given, strategies as st, assume, settings, HealthCheck
@@ -24,6 +19,17 @@ try:
     from pymui import pymui
 except ImportError:
     import pymui
+
+
+def begin_in_window(ctx):
+    """Start a frame with one window open; widgets need a window's layout."""
+    ctx.begin()
+    assert ctx.begin_window("Property test", pymui.Rect(0, 0, 400, 300))
+
+
+def end_in_window(ctx):
+    ctx.end_window()
+    ctx.end()
 
 
 class TestVec2Properties:
@@ -47,7 +53,7 @@ class TestVec2Properties:
         assert vec.x == x
         assert vec.y == y
 
-    @given(x=integers(), y=integers())
+    @given(x=integers(min_value=-(2**31), max_value=2**31 - 1), y=integers(min_value=-(2**31), max_value=2**31 - 1))
     def test_vec2_repr_contains_values(self, x, y):
         """Vec2 repr should contain the coordinate values."""
         vec = pymui.Vec2(x, y)
@@ -72,7 +78,7 @@ class TestRectProperties:
         assert rect.w == w
         assert rect.h == h
 
-    @given(x=integers(), y=integers(), w=integers(), h=integers())
+    @given(x=integers(min_value=-(2**31), max_value=2**31 - 1), y=integers(min_value=-(2**31), max_value=2**31 - 1), w=integers(min_value=-(2**31), max_value=2**31 - 1), h=integers(min_value=-(2**31), max_value=2**31 - 1))
     def test_rect_property_assignment(self, x, y, w, h):
         """Rect property assignment should work correctly."""
         rect = pymui.Rect(0, 0, 1, 1)
@@ -85,7 +91,7 @@ class TestRectProperties:
         assert rect.w == w
         assert rect.h == h
 
-    @given(x=integers(), y=integers(), w=integers(), h=integers())
+    @given(x=integers(min_value=-(2**31), max_value=2**31 - 1), y=integers(min_value=-(2**31), max_value=2**31 - 1), w=integers(min_value=-(2**31), max_value=2**31 - 1), h=integers(min_value=-(2**31), max_value=2**31 - 1))
     def test_rect_repr_contains_values(self, x, y, w, h):
         """Rect repr should contain all dimension values."""
         rect = pymui.Rect(x, y, w, h)
@@ -95,6 +101,32 @@ class TestRectProperties:
         assert str(w) in repr_str
         assert str(h) in repr_str
         assert "Rect" in repr_str
+
+
+class TestCIntBounds:
+    """Vec2/Rect/Color mirror C structs; out-of-range values must raise, not wrap."""
+
+    @given(v=integers(max_value=-(2**31) - 1) | integers(min_value=2**31))
+    def test_int_fields_reject_overflow(self, v):
+        import pytest
+        with pytest.raises(OverflowError):
+            pymui.Vec2(v, 0)
+        with pytest.raises(OverflowError):
+            pymui.Rect(0, 0, 0, v)
+        r = pymui.Rect()
+        with pytest.raises(OverflowError):
+            r.w = v
+
+    @given(v=integers(max_value=-1) | integers(min_value=256))
+    def test_color_channels_reject_out_of_range(self, v):
+        import pytest
+        with pytest.raises((ValueError, OverflowError)):
+            pymui.Color(v, 0, 0)
+        with pytest.raises((ValueError, OverflowError)):
+            pymui.color(0, 0, 0, v)
+        c = pymui.Color()
+        with pytest.raises((ValueError, OverflowError)):
+            c.g = v
 
 
 class TestColorProperties:
@@ -150,14 +182,14 @@ class TestContextProperties:
     @given(text_content=text(min_size=0, max_size=1000))
     def test_text_with_various_content(self, text_content):
         """Text function should handle various text content safely."""
-        self.ctx.begin()
+        begin_in_window(self.ctx)
         try:
             self.ctx.text(text_content)
         except UnicodeEncodeError:
             # This is acceptable - some Unicode strings may not encode
             pass
         finally:
-            self.ctx.end()
+            end_in_window(self.ctx)
 
     @given(label_text=text(min_size=1, max_size=200))
     def test_label_with_various_content(self, label_text):
@@ -165,14 +197,14 @@ class TestContextProperties:
         # Filter out strings that would cause encoding issues
         assume(all(ord(c) < 65536 for c in label_text))  # Basic Multilingual Plane only
 
-        self.ctx.begin()
+        begin_in_window(self.ctx)
         try:
             self.ctx.label(label_text)
         except (UnicodeEncodeError, ValueError):
             # These are acceptable for invalid inputs
             pass
         finally:
-            self.ctx.end()
+            end_in_window(self.ctx)
 
     @given(button_text=text(min_size=1, max_size=100),
            icon=integers(min_value=0, max_value=10),
@@ -181,7 +213,7 @@ class TestContextProperties:
         """Button function should handle various parameters safely."""
         assume(all(ord(c) < 65536 for c in button_text))
 
-        self.ctx.begin()
+        begin_in_window(self.ctx)
         try:
             result = self.ctx.button(button_text, icon, opt)
             # Result should be an integer
@@ -189,7 +221,7 @@ class TestContextProperties:
         except (UnicodeEncodeError, ValueError):
             pass
         finally:
-            self.ctx.end()
+            end_in_window(self.ctx)
 
     @given(value=floats(min_value=-1000.0, max_value=1000.0, allow_nan=False, allow_infinity=False),
            low=floats(min_value=-1000.0, max_value=1000.0, allow_nan=False, allow_infinity=False),
@@ -201,7 +233,7 @@ class TestContextProperties:
         if low > high:
             low, high = high, low
 
-        self.ctx.begin()
+        begin_in_window(self.ctx)
         try:
             result, new_value = self.ctx.slider(value, low, high, step)
 
@@ -216,7 +248,7 @@ class TestContextProperties:
             # These are acceptable for extreme values
             pass
         finally:
-            self.ctx.end()
+            end_in_window(self.ctx)
 
     @given(state=booleans(),
            label_text=text(min_size=1, max_size=50))
@@ -224,7 +256,7 @@ class TestContextProperties:
         """Checkbox should handle various states and labels safely."""
         assume(all(ord(c) < 65536 for c in label_text))
 
-        self.ctx.begin()
+        begin_in_window(self.ctx)
         try:
             result, new_state = self.ctx.checkbox(label_text, state)
 
@@ -236,7 +268,7 @@ class TestContextProperties:
         except (UnicodeEncodeError, ValueError):
             pass
         finally:
-            self.ctx.end()
+            end_in_window(self.ctx)
 
 
 class TestTextboxProperties:
@@ -286,27 +318,27 @@ class TestLayoutProperties:
            height=integers(min_value=0, max_value=1000))
     def test_layout_row_with_various_widths(self, width_list, height):
         """Layout row should handle various width configurations."""
-        self.ctx.begin()
+        begin_in_window(self.ctx)
         try:
             self.ctx.layout_row(width_list, height)
         except (ValueError, MemoryError):
             # These are acceptable for invalid inputs
             pass
         finally:
-            self.ctx.end()
+            end_in_window(self.ctx)
 
     @given(width=integers(min_value=-1000, max_value=1000),
            height=integers(min_value=-1000, max_value=1000))
     def test_layout_width_height(self, width, height):
         """Layout width/height should handle various values."""
-        self.ctx.begin()
+        begin_in_window(self.ctx)
         try:
             self.ctx.layout_width(width)
             self.ctx.layout_height(height)
         except ValueError:
             pass
         finally:
-            self.ctx.end()
+            end_in_window(self.ctx)
 
 
 class TestWindowProperties:

@@ -9,11 +9,7 @@ as new features are added or code is refactored.
 import time
 import statistics
 import sys
-from pathlib import Path
 
-# Add src to path for imports
-ROOTDIR = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(ROOTDIR))
 
 try:
     from pymui import pymui
@@ -286,20 +282,12 @@ def test_performance_benchmarks():
     suite = PerformanceBenchmarks()
     results = suite.run_all_benchmarks()
 
-    # Basic performance sanity checks
+    errors = {name: r["error"] for name, r in results.items() if "error" in r}
+    assert not errors, f"benchmarks raised: {errors}"
+
+    # Mean only: dispersion of microsecond timings measures scheduler noise.
     for name, result in results.items():
-        if 'error' not in result:
-            # No operation should take more than 10ms on average
-            assert result['mean'] < 0.01, f"{name} is too slow: {result['mean']*1000:.3f}ms"
-
-            # Standard deviation shouldn't be too high (indicating inconsistent performance)
-            if result['mean'] > 0:
-                cv = result['stdev'] / result['mean']  # Coefficient of variation
-                assert cv < 2.0, f"{name} has inconsistent performance: CV={cv:.2f}"
-
-    print("\n✅ All performance benchmarks passed!")
-    return True
-
+        assert result["mean"] < 0.01, f"{name} is too slow: {result['mean'] * 1000:.3f}ms"
 
 if __name__ == "__main__":
     suite = PerformanceBenchmarks()

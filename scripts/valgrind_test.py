@@ -10,8 +10,8 @@ import pymui
 
 def test_basic_operations():
     """Test basic pymui operations under Valgrind."""
-    # Context lifecycle. Widget calls must sit inside a window: microui
-    # asserts on an empty clip stack otherwise.
+    # Context lifecycle. Widget calls must sit inside a window; pymui
+    # raises RuntimeError otherwise.
     for i in range(10):
         ctx = pymui.Context()
         ctx.begin()

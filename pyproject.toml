@@ -1,6 +1,6 @@
 [project]
-name = "pymui"
-version = "0.2.0"
+name = "microui-py"
+version = "0.3.0"
 description = "A cython wrapper for microui"
 readme = "README.md"
 authors = [{ name = "Shakeeb Alireza", email = "shakfu@me.org" }]
@@ -10,8 +10,15 @@ dependencies = [
     #"pysdl2-dll>=2.32.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/shakfu/pymui"
+Issues = "https://github.com/shakfu/pymui/issues"
+Changelog = "https://github.com/shakfu/pymui/blob/main/CHANGELOG.md"
+
 [tool.scikit-build]
 ninja.make-fallback = false
+# The import package is `pymui`; auto-discovery would look for src/microui_py.
+wheel.packages = ["src/pymui"]
 
 [build-system]
 build-backend = "scikit_build_core.build"
@@ -27,11 +34,4 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
 testpaths = ["tests"]
-# Exclude tests that trigger microui assertion failures due to UI context issues
-addopts = "--ignore=tests/test_property_based.py --ignore=tests/test_property_based_safe.py --ignore=tests/test_performance.py"
-markers = [
-    "ui_context: marks tests that use UI context operations (may crash)",
-    "safe: marks tests that are safe to run without UI context issues"
-]

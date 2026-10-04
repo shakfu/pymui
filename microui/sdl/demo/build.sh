@@ -1,4 +1,6 @@
 #!/bin/bash
+# Build the C reference demo without CMake. Run from this directory.
+set -e
 
 OS_NAME=`uname -o 2>/dev/null || uname -s`
 
@@ -10,7 +12,6 @@ else
     GLFLAG="-lGL"
 fi
 
-CFLAGS="-I../src -Wall -std=c11 -pedantic `sdl2-config --libs` $GLFLAG -lm -O3 -g"
+CFLAGS="-I.. -I../.. -Wall -std=c11 -pedantic `sdl2-config --cflags --libs` $GLFLAG -lm -O3 -g"
 
-gcc main.c renderer.c ../src/microui.c $CFLAGS
-
+gcc main.c ../renderer.c ../../microui.c -o microui_demo $CFLAGS

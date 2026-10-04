@@ -1,5 +1,5 @@
 .phony: all build lint format typecheck check publish publish-test \
-		clean demo test test-safe test-all memory-test performance-test
+		clean demo showcase test memory-test performance-test
 		
 
 all: build
@@ -32,18 +32,13 @@ clean:
 	@find . -type d -path ".*_cache"  -exec rm -rf {} \; -prune
 
 demo:
-	@uv run python tests/pymui_sdl_demo.py
+	@uv run python examples/demo.py
+
+showcase:
+	@uv run python examples/showcase.py
 
 test:
 	@uv run pytest
-
-test-safe:
-	@echo "Running only safe tests (no UI context operations)..."
-	@uv run pytest tests/test_pymui.py tests/test_property_minimal.py tests/test_memory_safety.py tests/test_context_manager.py tests/test_window_context_manager.py
-
-test-all:
-	@echo "Running ALL tests (including potentially unstable UI context tests)..."
-	@uv run pytest --ignore=none
 
 memory-test:
 	@echo "Running memory leak detection..."

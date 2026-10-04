@@ -4,6 +4,12 @@
 #include "microui.h"
 
 void r_init(void);
+ int r_init_window(const char *title, int w, int h, int resizable);
+void r_resize(int w, int h);
+void r_shutdown(void);
+ int r_load_font(const unsigned char *data, int size, float px);
+void r_unload_font(void);
+ int r_font_loaded(void);
 void r_draw_rect(mu_Rect rect, mu_Color color);
 void r_draw_text(const char *text, mu_Vec2 pos, mu_Color color);
 void r_draw_icon(int id, mu_Rect rect, mu_Color color);

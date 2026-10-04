@@ -1,16 +1,85 @@
 
 from libc.stdlib cimport malloc, calloc, realloc, free
 from libc.string cimport memcpy, memset, strlen
+import operator
+import os
+import re
+import sys
+from contextlib import contextmanager
 
 cimport pymui
 
 
+cdef bint _window_open = False
+
+# Command-buffer bytes kept free before each drawing call, beyond the call's
+# own text. One window with title, frame and scrollbars uses under 1 KB.
+cdef Py_ssize_t _CMD_MARGIN = 2048
+# Worst-case command bytes per wrapped line of ctx.text(), excluding the text.
+cdef Py_ssize_t _TEXT_LINE_COST = sizeof(mu_TextCommand) + 2 * sizeof(mu_ClipCommand)
+cdef Py_ssize_t _MAX_PENDING_TEXT = 64 * 1024
+cdef Py_ssize_t _MAX_FONT_BYTES = 64 * 1024 * 1024
+
+
+cdef int _require_window() except -1:
+    if not _window_open:
+        raise RuntimeError("No renderer window; call renderer_init_window() first")
+    return 0
+
+
+class DuplicateIDError(RuntimeError):
+    """Two widgets or containers in one frame resolved to the same ID."""
+
+
+@contextmanager
+def _scoped(value, end):
+    """Yield `value`, then call `end` if given.
+
+    If the body raised, an error from `end` is dropped so the original
+    exception propagates; the frame is discarded either way.
+    """
+    try:
+        yield value
+    except BaseException:
+        if end is not None:
+            try:
+                end()
+            except RuntimeError:
+                pass
+        raise
+    if end is not None:
+        end()
+
+
+# One float conversion, bounded so microui's sprintf output fits its
+# MU_MAX_FMT + 1 byte buffer. "%%" escapes are allowed around it.
+_FMT_RE = re.compile(r"(?:[^%]|%%)*%[-+ #0]*\d{0,2}(?:\.(?:1\d|20|\d))?[fFeEgG](?:[^%]|%%)*")
+
+
+cdef bytes _check_fmt(str fmt):
+    # Worst case: 99-wide field + 32 - 4 literal bytes < 128.
+    cdef bytes bfmt = fmt.encode('utf-8')
+    if len(bfmt) > 32 or _FMT_RE.fullmatch(fmt) is None:
+        raise ValueError(f"invalid number format {fmt!r}: need one %f/%e/%g conversion")
+    return bfmt
+
+
+cdef int _channel(int v) except -1:
+    """Validate a color channel; mu_Color stores unsigned char, which would wrap."""
+    if not 0 <= v <= 255:
+        raise ValueError(f"color channel must be 0..255, got {v}")
+    return v
+
+
+cdef bytes _to_bytes(object data):
+    """Encode an ID key: bytes pass through, everything else via str()."""
+    if isinstance(data, bytes):
+        return data
+    return str(data).encode('utf-8')
+
+
 
 # Fused types
-ctypedef fused number:
-    int
-    float
-
 # Version function
 def version() -> str:
     """Get the microui library version.
@@ -20,7 +89,7 @@ def version() -> str:
     """
     return MU_VERSION.decode()
 
-def clamp(number x, number a, number b) -> number:
+def clamp(x, a, b):
     """Clamp a value between minimum and maximum bounds.
 
     Args:
@@ -31,6 +100,7 @@ def clamp(number x, number a, number b) -> number:
     Returns:
         The clamped value, guaranteed to be between a and b (inclusive)
     """
+    # Untyped on purpose: a C float parameter would round to 32 bits.
     return min(b, max(a, x))
 
 # Global convenience functions
@@ -72,7 +142,7 @@ def color(int r, int g, int b, int a=255) -> Color:
     Returns:
         Color: A new Color instance with the specified RGBA values
     """
-    return Color.from_c(mu_color(r, g, b, a))
+    return Color(r, g, b, a)
 
 
 # Basic struct classes
@@ -246,10 +316,10 @@ cdef class Color:
             b (int, optional): Blue component (0-255). Defaults to 0.
             a (int, optional): Alpha component (0-255). Defaults to 255 (fully opaque).
         """
-        self._color.r = r
-        self._color.g = g
-        self._color.b = b
-        self._color.a = a
+        self._color.r = _channel(r)
+        self._color.g = _channel(g)
+        self._color.b = _channel(b)
+        self._color.a = _channel(a)
 
     @property
     def r(self) -> int:
@@ -258,7 +328,7 @@ cdef class Color:
 
     @r.setter
     def r(self, int value):
-        self._color.r = value
+        self._color.r = _channel(value)
 
     @property
     def g(self) -> int:
@@ -267,7 +337,7 @@ cdef class Color:
 
     @g.setter
     def g(self, int value):
-        self._color.g = value
+        self._color.g = _channel(value)
 
     @property
     def b(self) -> int:
@@ -276,7 +346,7 @@ cdef class Color:
 
     @b.setter
     def b(self, int value):
-        self._color.b = value
+        self._color.b = _channel(value)
 
     @property
     def a(self) -> int:
@@ -285,7 +355,7 @@ cdef class Color:
 
     @a.setter
     def a(self, int value):
-        self._color.a = value
+        self._color.a = _channel(value)
 
     def __repr__(self):
         return f"Color({self.r}, {self.g}, {self.b}, {self.a})"
@@ -303,6 +373,7 @@ cdef class Color:
 cdef class Style:
     cdef mu_Style* ptr
     cdef bint owner
+    cdef object _ref  # keeps the owning Context alive
 
     def __cinit__(self):
         self.ptr = NULL
@@ -319,124 +390,93 @@ cdef class Style:
         # since we cannot pass a struct pointer into a Python constructor.
         raise TypeError("This class cannot be instantiated directly.")
 
+    cdef mu_Style* _p(self) except NULL:
+        if self.ptr is NULL:
+            raise ValueError("Style is not bound to a Context")
+        return self.ptr
+
     @staticmethod
-    cdef Style from_ptr(mu_Style* ptr, bint owner=False):
+    cdef Style from_ptr(mu_Style* ptr, bint owner=False, object ref=None):
         cdef Style wrapper = Style.__new__(Style)
         wrapper.ptr = ptr
         wrapper.owner = owner
+        wrapper._ref = ref
         return wrapper
-
-    @staticmethod
-    cdef Style new():
-        cdef mu_Style* _ptr = <mu_Style*>malloc(sizeof(mu_Style))
-        if _ptr is NULL:
-            raise MemoryError("Failed to allocate Style")
-        memset(_ptr, 0, sizeof(mu_Style))
-        return Style.from_ptr(_ptr, owner=True)
-
-    # @property
-    # def font(self):
-    #     return <object>self.ptr.font
-
-    # @font.setter
-    # def font(self, font):
-    #     self.ptr.font = <mu_Font>font
 
     @property
     def size(self) -> Vec2:
-        return Vec2.from_c(self.ptr.size)
+        return Vec2.from_c(self._p().size)
 
     @size.setter
     def size(self, Vec2 value):
-        self.ptr.size = value.to_c()
+        self._p().size = value.to_c()
 
     @property
     def padding(self) -> int:
-        return self.ptr.padding
+        return self._p().padding
 
     @padding.setter
     def padding(self, int value):
-        self.ptr.padding = value
+        self._p().padding = value
 
     @property
     def spacing(self) -> int:
-        return self.ptr.spacing
+        return self._p().spacing
 
     @spacing.setter
     def spacing(self, int value):
-        self.ptr.spacing = value
+        self._p().spacing = value
 
     @property
     def indent(self) -> int:
-        return self.ptr.indent
+        return self._p().indent
 
     @indent.setter
     def indent(self, int value):
-        self.ptr.indent = value
+        self._p().indent = value
 
     @property
     def title_height(self) -> int:
-        return self.ptr.title_height
+        return self._p().title_height
 
     @title_height.setter
     def title_height(self, int value):
-        self.ptr.title_height = value
+        self._p().title_height = value
 
     @property
     def scrollbar_size(self) -> int:
-        return self.ptr.scrollbar_size
+        return self._p().scrollbar_size
 
     @scrollbar_size.setter
     def scrollbar_size(self, int value):
-        self.ptr.scrollbar_size = value
+        self._p().scrollbar_size = value
 
     @property
     def thumb_size(self) -> int:
-        return self.ptr.thumb_size
+        return self._p().thumb_size
 
     @thumb_size.setter
     def thumb_size(self, int value):
-        self.ptr.thumb_size = value
+        self._p().thumb_size = value
 
     def get_color(self, int index) -> Color:
         if 0 <= index < MU_COLOR_MAX:
-            return Color.from_c(self.ptr.colors[index])
+            return Color.from_c(self._p().colors[index])
         raise IndexError("Color index out of range")
 
     def set_color(self, int index, Color color):
         if 0 <= index < MU_COLOR_MAX:
-            self.ptr.colors[index] = color.to_c()
+            self._p().colors[index] = color.to_c()
         else:
             raise IndexError("Color index out of range")
 
 
 cdef int text_width(mu_Font font, const char *text, int len) noexcept:
-    """Calculate text width for our bitmap font (matching Python renderer)"""
     return r_get_text_width(text, len)
-    # if text == NULL:
-    #     return 0
 
-    # if len == -1:
-    #     len = strlen(text)
-
-    # # Python renderer uses 5-pixel wide characters + 1 pixel spacing = 6 pixels per char
-    # cdef int width = 0
-    # cdef int i = 0
-
-    # while i < len and text[i] != 0:
-    #     if text[i] == b'\t':
-    #         width += 24  # Tab = 4 characters * 6 pixels
-    #     else:
-    #         width += 6   # Each character is 6 pixels wide (5 + 1 spacing)
-    #     i += 1
-
-    # return width
 
 cdef int text_height(mu_Font font) noexcept:
-    """Text height for our bitmap font (matching Python renderer)"""
     return r_get_text_height()
-    # return 8  # Python renderer uses 7-pixel height + 1 pixel spacing
-
 
 
 # Main Context class
@@ -484,563 +524,743 @@ cdef class Context:
         while the frame context manager automatically calls begin() and end().
     """
     cdef mu_Context* ptr
-    cdef bint owner
     cdef mu_Command* current_command
+    # Fixed addresses for slider/number/checkbox values. microui derives
+    # those widgets' IDs from the value pointer, so it must not vary.
+    cdef mu_Real _real_slot
+    cdef int _int_slot
+    cdef bint _in_frame
+    cdef list _scopes        # open begin_*/push_* scopes, innermost last
+    cdef set _frame_ids      # widget/container IDs claimed this frame
+    cdef dict _auto_ids      # (scope id, code, offset) -> next occurrence
+    cdef bytes _pending_text # input text beyond microui's 32-byte buffer
 
-    def __cinit__(self):
-        self.ptr = NULL
-        self.owner = False
-        self.current_command = NULL
-
-    def __dealloc__(self):
-        # De-allocate if not null and flag is set
-        if self.ptr is not NULL and self.owner is True:
-            free(self.ptr)
-            self.ptr = NULL
-
-    def __init__(self):
-        """Initialize a new microui context.
-
-        Creates and initializes the underlying microui context with default
-        text measurement callbacks. The context is ready to use after initialization.
-
-        Raises:
-            MemoryError: If memory allocation for the context fails.
-        """
+    def __cinit__(self, *args, **kwargs):
+        # Allocated here, not in __init__, so no instance has a NULL ptr.
         self.ptr = <mu_Context*>malloc(sizeof(mu_Context))
         if self.ptr is NULL:
             raise MemoryError("Failed to allocate Context")
         mu_init(self.ptr)
         self.ptr.text_width = text_width
         self.ptr.text_height = text_height
-        self.owner = True
+        self.current_command = NULL
+        self._in_frame = False
+        self._scopes = []
+        self._frame_ids = set()
+        self._auto_ids = {}
+        self._pending_text = b""
 
-    @staticmethod
-    cdef Context from_ptr(mu_Context* ptr, bint owner=False):
-        cdef Context wrapper = Context.__new__(Context)
-        wrapper.ptr = ptr
-        wrapper.owner = owner
-        wrapper.current_command = NULL
-        return wrapper
+    def __dealloc__(self):
+        if self.ptr is not NULL:
+            free(self.ptr)
+            self.ptr = NULL
 
-    @staticmethod
-    cdef Context new():
-        cdef mu_Context* _ptr = <mu_Context*>malloc(sizeof(mu_Context))
-        if _ptr is NULL:
-            raise MemoryError("Failed to allocate Context")
-        mu_init(_ptr)
-        return Context.from_ptr(_ptr, owner=True)
+    def __init__(self):
+        """Create a microui context.
+
+        Raises:
+            MemoryError: If allocation fails.
+        """
 
     @property
     def style(self) -> Style:
-        """Get the current style configuration for the context.
+        """The live style (colors, spacing, sizes) used by this context."""
+        return Style.from_ptr(<mu_Style*>self.ptr.style, False, self)
 
-        Returns:
-            Style: The style object containing colors, spacing, and sizing information.
+    # ------------------------------------------------------------------
+    # Guards. microui checks its invariants with abort(), and some paths
+    # (empty layout or clip stack) are unchecked out-of-bounds reads. Every
+    # call that can reach one is checked here first and raises instead.
+
+    cdef int _require_frame(self) except -1:
+        if not self._in_frame:
+            raise RuntimeError("must be called between begin() and end()")
+        return 0
+
+    cdef int _require_layout(self, int depth=1) except -1:
+        if self.ptr.layout_stack.idx < depth:
+            raise RuntimeError("must be called inside a window or panel")
+        return 0
+
+    cdef int _require_clip(self) except -1:
+        if self.ptr.clip_stack.idx == 0:
+            raise RuntimeError("must be called inside a window or panel")
+        return 0
+
+    cdef int _reserve(self, int ids=0, int clips=0, int layouts=0,
+                      int containers=0, int roots=0, Py_ssize_t cmd=0) except -1:
+        """Raise unless the stacks and command buffer have this much room."""
+        cdef mu_Context* c = self.ptr
+        if c.id_stack.idx + ids > MU_IDSTACK_SIZE:
+            raise RuntimeError(f"ID stack full ({MU_IDSTACK_SIZE} nested scopes)")
+        if c.clip_stack.idx + clips > MU_CLIPSTACK_SIZE:
+            raise RuntimeError(f"clip stack full ({MU_CLIPSTACK_SIZE} nested clips)")
+        if c.layout_stack.idx + layouts > MU_LAYOUTSTACK_SIZE:
+            raise RuntimeError(f"layout stack full ({MU_LAYOUTSTACK_SIZE} nested layouts)")
+        if c.container_stack.idx + containers > MU_CONTAINERSTACK_SIZE:
+            raise RuntimeError(f"container stack full ({MU_CONTAINERSTACK_SIZE} nested containers)")
+        if c.root_list.idx + roots > MU_ROOTLIST_SIZE:
+            raise RuntimeError(f"too many windows in one frame (max {MU_ROOTLIST_SIZE})")
+        if c.command_list.idx + _CMD_MARGIN + cmd >= MU_COMMANDLIST_SIZE:
+            raise RuntimeError(f"command buffer full ({MU_COMMANDLIST_SIZE} bytes per frame)")
+        return 0
+
+    cdef int _require_pool_slot(self, mu_PoolItem* items, int n, mu_Id wid, str what) except -1:
+        """Raise unless `wid` is pooled or a slot is free; mu_pool_init aborts otherwise."""
+        cdef int i
+        if mu_pool_get(self.ptr, items, n, wid) >= 0:
+            return 0
+        for i in range(n):
+            if items[i].last_update < self.ptr.frame:
+                return 0
+        raise RuntimeError(f"more than {n} {what} in use in one frame")
+
+    cdef int _claim(self, mu_Id wid, str what) except -1:
+        """Record `wid` for this frame; a repeat means two widgets share state."""
+        if wid in self._frame_ids:
+            raise DuplicateIDError(
+                f"{what} has the same ID as an earlier widget this frame; "
+                "pass key= or wrap it in id_scope()")
+        self._frame_ids.add(wid)
+        return 0
+
+    cdef int _claim_container(self, mu_Id wid, str what) except -1:
+        """As _claim, for containers. A repeated begin overwrites the
+        container's head jump, silently dropping the first instance's commands."""
+        key = ("container", wid)
+        if key in self._frame_ids:
+            raise DuplicateIDError(f"{what} was already begun this frame")
+        self._frame_ids.add(key)
+        return 0
+
+    cdef void _open(self, str tag):
+        self._scopes.append(tag)
+
+    cdef int _close(self, str tag) except -1:
+        if not self._scopes or self._scopes[-1] != tag:
+            top = self._scopes[-1] if self._scopes else "nothing"
+            raise RuntimeError(f"closing {tag}, but the innermost open scope is {top}")
+        self._scopes.pop()
+        return 0
+
+    cdef mu_Id _hash(self, bytes data):
+        return mu_get_id(self.ptr, <const char*>data, len(data))
+
+    cdef bytes _widget_key(self, object key):
+        """Return `key` as bytes, or a key from the caller's code location.
+
+        The default key is (code object, bytecode offset, occurrence), so it
+        changes only when the same call site runs more than once in a scope,
+        e.g. in a loop.
         """
-        return Style.from_ptr(<mu_Style*>self.ptr.style)
+        cdef mu_Id scope
+        if key is not None:
+            return _to_bytes(key)
+        frame = sys._getframe(0)  # nearest Python frame: the caller
+        scope = self.ptr.id_stack.items[self.ptr.id_stack.idx - 1] if self.ptr.id_stack.idx else 0
+        site = (scope, id(frame.f_code), frame.f_lasti)
+        n = self._auto_ids.get(site, 0)
+        self._auto_ids[site] = n + 1
+        return b"#%x:%x:%d" % (id(frame.f_code), frame.f_lasti, n)
+
+    cdef void _flush_text(self):
+        """Move pending input into microui's buffer, cutting on a UTF-8 boundary."""
+        cdef Py_ssize_t used = strlen(self.ptr.input_text)
+        cdef Py_ssize_t room = <Py_ssize_t>sizeof(self.ptr.input_text) - 1 - used
+        cdef Py_ssize_t cut = min(room, len(self._pending_text))
+        cdef bytes chunk
+        while 0 < cut < len(self._pending_text) and (self._pending_text[cut] & 0xC0) == 0x80:
+            cut -= 1
+        if cut <= 0:
+            return
+        chunk = self._pending_text[:cut]
+        memcpy(self.ptr.input_text + used, <const char*>chunk, cut)
+        self.ptr.input_text[used + cut] = 0
+        self._pending_text = self._pending_text[cut:]
+
+    # ------------------------------------------------------------------
+    # Frame lifecycle
 
     def begin(self):
-        """Start a new UI frame.
+        """Start a frame. Pair with end(), or use `with ctx:`.
 
-        This must be called at the beginning of each frame before any UI elements
-        are created. It prepares the context for a new frame of UI processing.
-
-        Note:
-            Always pair this with a call to end() at the end of the frame.
+        Raises:
+            RuntimeError: If a frame is already in progress.
         """
+        if self._in_frame:
+            raise RuntimeError("begin() called twice without end()")
         mu_begin(self.ptr)
-        # Reset command iterator for new frame
+        self._in_frame = True
         self.current_command = NULL
+        self._auto_ids.clear()
+        self._frame_ids.clear()
+        self._flush_text()
 
     def end(self):
-        """End the current UI frame.
+        """Finish the frame and prepare its command list.
 
-        This must be called at the end of each frame after all UI elements
-        have been processed. It finalizes the frame and prepares rendering commands.
-
-        Note:
-            Always pair this with a call to begin() at the start of the frame.
+        Raises:
+            RuntimeError: If no frame is in progress, or scopes are still open.
+                In the second case the frame is discarded.
         """
+        cdef mu_Context* c = self.ptr
+        if not self._in_frame:
+            raise RuntimeError("end() called without begin()")
+        if self._scopes or c.container_stack.idx or c.clip_stack.idx or c.id_stack.idx or c.layout_stack.idx:
+            names = ", ".join(self._scopes) or "microui stacks"
+            self.abort_frame()
+            raise RuntimeError(f"end() with unclosed scopes: {names}")
         mu_end(self.ptr)
+        self._in_frame = False
+
+    def abort_frame(self):
+        """Discard the current frame instead of calling end().
+
+        Resets the stacks, drops the frame's commands, and clears per-frame
+        input as end() would. mu_end() cannot be used here: it aborts on
+        non-empty stacks and patches root containers that never finished.
+        """
+        self.ptr.container_stack.idx = 0
+        self.ptr.clip_stack.idx = 0
+        self.ptr.id_stack.idx = 0
+        self.ptr.layout_stack.idx = 0
+        self.ptr.command_list.idx = 0
+        self.ptr.root_list.idx = 0
+        self.ptr.updated_focus = 0
+        self.ptr.key_pressed = 0
+        self.ptr.input_text[0] = 0
+        self.ptr.mouse_pressed = 0
+        self.ptr.scroll_delta = mu_vec2(0, 0)
+        self.ptr.last_mouse_pos = self.ptr.mouse_pos
+        self.current_command = NULL
+        self._scopes.clear()
+        self._in_frame = False
 
     def __enter__(self):
-        """Enter the context manager - automatically calls begin().
-
-        This allows using the Context with Python's 'with' statement for automatic
-        frame management. For even cleaner code, use the window context manager too:
-
-        Example:
-            >>> with pymui.Context() as ctx:
-            ...     with ctx.window("My Window", 10, 10, 200, 150) as window:
-            ...         if window.is_open:
-            ...             ctx.label("Hello, World!")
-            ...             if ctx.button("Click me"):
-            ...                 print("Button clicked!")
-
-        Returns:
-            Context: Returns self to allow method chaining
-        """
+        """`with ctx:` calls begin()."""
         self.begin()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Exit the context manager - automatically calls end().
-
-        This ensures that end() is always called even if an exception occurs
-        within the context manager block.
-
-        Args:
-            exc_type: Exception type (if any)
-            exc_val: Exception value (if any)
-            exc_tb: Exception traceback (if any)
-
-        Returns:
-            None: Does not suppress exceptions
-        """
-        self.end()
+        """Call end(), or abort_frame() if the body raised."""
+        if exc_type is None:
+            self.end()
+        elif self._in_frame:
+            self.abort_frame()
         return None
 
-    def set_focus(self, unsigned int id):
-        """Set the focused widget.
+    @property
+    def in_frame(self) -> bool:
+        """True between begin() and end()."""
+        return self._in_frame
 
-        Args:
-            id (int): The widget ID to focus
-        """
+    # ------------------------------------------------------------------
+    # IDs and clipping
+
+    def set_focus(self, unsigned int id):
+        """Give keyboard focus to control `id`."""
         mu_set_focus(self.ptr, id)
 
     def get_id(self, data) -> int:
-        """Get an ID for the given data.
-
-        Args:
-            data: The data to generate an ID for (string, bytes, or any object)
-
-        Returns:
-            int: A unique ID for the given data
-
-        Raises:
-            UnicodeEncodeError: If data cannot be encoded to UTF-8
-        """
-
-        cdef bytes bdata
-        try:
-            if isinstance(data, str):
-                bdata = data.encode('utf-8')
-            elif isinstance(data, bytes):
-                bdata = data
-            else:
-                bdata = str(data).encode('utf-8')
-        except UnicodeEncodeError as e:
-            raise UnicodeEncodeError("Failed to encode data for ID generation") from e
-
-        return mu_get_id(self.ptr, <const char*>bdata, len(bdata))
+        """Hash `data` (str, bytes, or str()-able) with the current ID scope."""
+        return self._hash(_to_bytes(data))
 
     def push_id(self, data):
-        """Push an ID onto the ID stack"""
-        cdef bytes bdata
-        if isinstance(data, str):
-            bdata = data.encode('utf-8')
-        elif isinstance(data, bytes):
-            bdata = data
-        else:
-            bdata = str(data).encode('utf-8')
+        """Push an ID scope. Prefer `with ctx.id_scope(data):`."""
+        cdef bytes bdata = _to_bytes(data)
+        self._reserve(1)
         mu_push_id(self.ptr, <const char*>bdata, len(bdata))
+        self._open("id")
 
     def pop_id(self):
-        """Pop an ID from the ID stack"""
+        """Pop the scope opened by push_id()."""
+        self._close("id")
         mu_pop_id(self.ptr)
 
     def push_clip_rect(self, Rect rect):
-        """Push a clip rectangle"""
+        """Intersect the clip rect with `rect` until pop_clip_rect()."""
+        self._require_clip()
+        self._reserve(0, 1)
         mu_push_clip_rect(self.ptr, rect.to_c())
+        self._open("clip")
 
     def pop_clip_rect(self):
-        """Pop a clip rectangle"""
+        """Pop the clip rect pushed by push_clip_rect()."""
+        self._close("clip")
         mu_pop_clip_rect(self.ptr)
 
     def get_clip_rect(self) -> Rect:
-        """Get the current clip rectangle"""
+        """Current clip rect."""
+        self._require_clip()
         return Rect.from_c(mu_get_clip_rect(self.ptr))
 
     def check_clip(self, Rect rect) -> int:
-        """Check if a rectangle is clipped"""
+        """0 if `rect` is visible, else `Clip.PART` or `Clip.ALL`."""
+        self._require_clip()
         return mu_check_clip(self.ptr, rect.to_c())
 
-    # Input functions
+    # ------------------------------------------------------------------
+    # Input
+
     def input_mousemove(self, int x, int y):
-        """Handle mouse movement"""
         mu_input_mousemove(self.ptr, x, y)
 
     def input_mousedown(self, int x, int y, int btn):
-        """Handle mouse button press"""
         mu_input_mousedown(self.ptr, x, y, btn)
 
     def input_mouseup(self, int x, int y, int btn):
-        """Handle mouse button release"""
         mu_input_mouseup(self.ptr, x, y, btn)
 
     def input_scroll(self, int x, int y):
-        """Handle scroll input"""
         mu_input_scroll(self.ptr, x, y)
 
     def input_keydown(self, int key):
-        """Handle key press"""
         mu_input_keydown(self.ptr, key)
 
     def input_keyup(self, int key):
-        """Handle key release"""
         mu_input_keyup(self.ptr, key)
 
     def input_text(self, str text):
-        """Handle text input"""
-        cdef bytes btext = text.encode('utf-8')
-        mu_input_text(self.ptr, btext)
+        """Queue typed text.
 
-    # Layout functions
-    # def layout_row(self, int items, widths, int height):
-    #     """Set up a row layout"""
-    #     cdef int* width_array = NULL
-    #     cdef int i
+        microui holds 31 bytes per frame and aborts beyond that. Excess is
+        carried into following frames; at most 64 KB is kept pending.
+        """
+        cdef bytes btext = text.encode('utf-8').split(b"\0", 1)[0]
+        if len(self._pending_text) + len(btext) > _MAX_PENDING_TEXT:
+            raise ValueError("too much pending text input")
+        self._pending_text += btext
+        self._flush_text()
 
-    #     if widths is not None:
-    #         if isinstance(widths, (list, tuple)):
-    #             width_array = <int*>malloc(items * sizeof(int))
-    #             for i in range(min(items, len(widths))):
-    #                 width_array[i] = widths[i]
-    #         elif isinstance(widths, np.ndarray):
-    #             width_array = <int*>np.PyArray_DATA(widths)
+    # ------------------------------------------------------------------
+    # Layout
 
-    #     mu_layout_row(self.ptr, items, width_array, height)
+    def layout_row(self, widths, int height):
+        """Start a row of `len(widths)` cells; None means one cell per call.
 
-    #     if width_array is not NULL and not isinstance(widths, np.ndarray):
-    #         free(width_array)
+        Widths: positive is pixels, 0 is the default width, negative is
+        relative to the right edge.
+
+        Raises:
+            ValueError: If more than 16 widths are given, or one is not an int.
+        """
+        cdef int c_widths[MU_MAX_WIDTHS]
+        cdef int* wptr = NULL
+        cdef int items = 0
+        cdef int i
+        self._require_layout()
+        if widths is not None:
+            items = len(widths)
+            if items > MU_MAX_WIDTHS:
+                raise ValueError(f"Too many width entries (max {MU_MAX_WIDTHS})")
+            for i in range(items):
+                try:
+                    c_widths[i] = widths[i]
+                except (TypeError, OverflowError):
+                    raise ValueError(f"Invalid width value at index {i}: {widths[i]!r}")
+            wptr = c_widths
+        mu_layout_row(self.ptr, items, wptr, height)
 
     def layout_width(self, int width):
-        """Set layout width"""
+        self._require_layout()
         mu_layout_width(self.ptr, width)
 
     def layout_height(self, int height):
-        """Set layout height"""
+        self._require_layout()
         mu_layout_height(self.ptr, height)
 
     def layout_begin_column(self):
-        """Begin a column layout"""
+        """Start a nested column in the next cell. Prefer `with ctx.column():`."""
+        self._require_layout()
+        self._reserve(0, 0, 1)
         mu_layout_begin_column(self.ptr)
+        self._open("column")
 
     def layout_end_column(self):
-        """End a column layout"""
+        self._close("column")
         mu_layout_end_column(self.ptr)
 
     def layout_set_next(self, Rect rect, int relative):
-        """Set the next layout rectangle"""
+        """Place the next widget at `rect`: window-relative if `relative`, else absolute."""
+        self._require_layout()
         mu_layout_set_next(self.ptr, rect.to_c(), relative)
 
     def layout_next(self) -> Rect:
-        """Get the next layout rectangle"""
+        """Consume and return the next cell."""
+        self._require_layout()
         return Rect.from_c(mu_layout_next(self.ptr))
 
-    # Widget functions
+    # ------------------------------------------------------------------
+    # Widgets
+
     def text(self, str text):
-        """Draw text.
-
-        Args:
-            text (str): The text to draw
-
-        Raises:
-            UnicodeEncodeError: If text cannot be encoded to UTF-8
-        """
-        if text is None:
-            text = ""
-
-        cdef bytes btext
-        try:
-            btext = text.encode('utf-8')
-        except UnicodeEncodeError as e:
-            raise UnicodeEncodeError("Failed to encode text") from e
-
+        """Draw word-wrapped text across the row width."""
+        cdef bytes btext = text.encode('utf-8')
+        # One text command (plus two clip commands) per wrapped line; a line
+        # break needs a space or newline.
+        cdef Py_ssize_t lines = btext.count(b" ") + btext.count(b"\n") + 1
+        self._require_layout()
+        self._reserve(0, 0, 1, 0, 0, len(btext) + lines * _TEXT_LINE_COST)
         mu_text(self.ptr, btext)
 
     def label(self, str text):
-        """Draw a label"""
         cdef bytes btext = text.encode('utf-8')
+        self._require_layout()
+        self._reserve(0, 1, 0, 0, 0, len(btext))
         mu_label(self.ptr, btext)
 
-    def button(self, str label, int icon=0, int opt=0) -> int:
-        """Create a button"""
-        cdef bytes blabel = label.encode('utf-8')
-        return mu_button_ex(self.ptr, blabel, icon, opt)
-
-    def checkbox(self, str label, state) -> tuple:
-        """Create a checkbox - returns (result, new_state)"""
-        cdef bytes blabel
-        cdef int c_state
-        cdef int result
-
-        blabel = label.encode('utf-8')
-        c_state = int(state)
-        result = mu_checkbox(self.ptr, blabel, &c_state)
-        return (result, c_state)
-
-
-    def textbox(self, str buf, int bufsz, int opt=0):
-        """Create a textbox - backward compatible version returns just result"""
-        # For backward compatibility, return just the result code
-        # The text modification is handled by reference in the original design
-        cdef bytes bbuf = buf.encode('utf-8')
-        # For testing/mock purposes, just return a mock result
-        # In practice, this would need proper buffer handling
-        return 0  # MU_RES_NONE
-
-    def textbox_ex(self, str buf, int bufsz, int opt=0) -> tuple:
-        """Create a textbox with enhanced memory safety - returns (result, new_text)
+    def button(self, str label, int icon=0, int opt=0, key=None) -> int:
+        """Return nonzero (`Result.SUBMIT`) on click.
 
         Args:
-            buf (str): Initial text content
-            bufsz (int): Buffer size in bytes (must be > 0)
-            opt (int, optional): Options flags. Defaults to 0.
+            key (optional): ID key. Defaults to `label`, or `icon` if `label` is empty.
+        """
+        cdef bytes blabel = label.encode('utf-8')
+        cdef bytes bkey
+        cdef const char* clabel = <const char*>blabel if blabel else NULL
+        cdef int result
+        self._require_layout()
+        self._reserve(1, 1, 0, 0, 0, len(blabel))
+        if key is None:
+            if clabel != NULL:
+                self._claim(self._hash(blabel), f"button {label!r}")
+            else:
+                self._claim(mu_get_id(self.ptr, &icon, sizeof(icon)), f"icon button {icon}")
+            return mu_button_ex(self.ptr, clabel, icon, opt)
+        bkey = _to_bytes(key)
+        self._claim(self._hash(bkey), f"button key {key!r}")
+        mu_push_id(self.ptr, <const char*>bkey, len(bkey))
+        result = mu_button_ex(self.ptr, clabel, icon, opt)
+        mu_pop_id(self.ptr)
+        return result
 
-        Returns:
-            tuple: (result_flags, new_text_content)
+    def checkbox(self, str label, state, key=None) -> tuple:
+        """Return (result, new_state).
+
+        Args:
+            key (optional): ID key. Defaults to `label`.
+        """
+        cdef bytes blabel = label.encode('utf-8')
+        cdef bytes bkey = _to_bytes(label if key is None else key)
+        cdef int result
+        self._require_layout()
+        self._reserve(1, 1, 0, 0, 0, len(blabel))
+        self._claim(self._hash(bkey), f"checkbox {label!r}")
+        self._int_slot = 1 if state else 0
+        mu_push_id(self.ptr, <const char*>bkey, len(bkey))
+        result = mu_checkbox(self.ptr, blabel, &self._int_slot)
+        mu_pop_id(self.ptr)
+        return (result, self._int_slot)
+
+    def textbox(self, str buf, int bufsz=256, int opt=0, key=None) -> tuple:
+        """Alias of textbox_ex()."""
+        return self.textbox_ex(buf, bufsz, opt, key)
+
+    def textbox_ex(self, str buf, int bufsz=256, int opt=0, key=None) -> tuple:
+        """Return (result, new_text). Pass the text back in each frame.
+
+        Args:
+            buf (str): Current text
+            bufsz (int): Buffer size in bytes, including the terminator (2..1MB)
+            opt (int, optional): Option flags
+            key (optional): ID key. Defaults to the caller's code location.
 
         Raises:
-            ValueError: If buffer size is invalid
-            MemoryError: If memory allocation fails
+            ValueError: If bufsz is out of range
+            MemoryError: If allocation fails
         """
-        # Validate buffer size
-        if bufsz <= 0:
-            raise ValueError("Buffer size must be positive")
-        if bufsz > 1024 * 1024:  # 1MB limit for safety
+        if bufsz < 2:
+            raise ValueError("Buffer too small (minimum 2 bytes)")
+        if bufsz > 1024 * 1024:
             raise ValueError("Buffer size too large (max 1MB)")
-
-        cdef char* c_buf = <char*>malloc(bufsz)
+        cdef bytes b_buf = buf.encode('utf-8')
+        cdef bytes bkey = self._widget_key(key)
+        cdef int copy_len = min(len(b_buf), bufsz - 1)
+        cdef int result
+        cdef mu_Id wid
+        cdef char* c_buf
+        self._require_layout()
+        self._reserve(0, 1, 0, 0, 0, bufsz)
+        wid = self._hash(bkey)
+        self._claim(wid, "textbox")
+        c_buf = <char*>malloc(bufsz)
         if c_buf == NULL:
             raise MemoryError("Failed to allocate textbox buffer")
-
-        cdef bytes b_buf
-        cdef int copy_len
-        cdef int result
-        cdef int encoded_len
-
         try:
-            # Encode and validate input text
-            b_buf = buf.encode('utf-8')
-            encoded_len = len(b_buf)
-
-            # Ensure we have space for null terminator
-            if bufsz < 2:
-                raise ValueError("Buffer too small (minimum 2 bytes)")
-
-            # Calculate safe copy length with explicit bounds check
-            copy_len = min(encoded_len, bufsz - 1)
-            if copy_len < 0:
-                copy_len = 0
-
-            # Safe memory copy with bounds verification
-            if copy_len > 0 and encoded_len > 0:
+            if copy_len > 0:
                 memcpy(c_buf, <const char*>b_buf, copy_len)
-            c_buf[copy_len] = 0  # null terminate
-
-            # Call microui function
-            result = mu_textbox_ex(self.ptr, c_buf, bufsz, opt)
-
-            # Convert back to Python string with error handling
-            new_text = c_buf.decode('utf-8', errors='replace')
-
-            return (result, new_text)
+            c_buf[copy_len] = 0
+            result = mu_textbox_raw(self.ptr, c_buf, bufsz, wid, mu_layout_next(self.ptr), opt)
+            return (result, c_buf.decode('utf-8', errors='replace'))
         finally:
             free(c_buf)
 
-    def slider(self, float value, float low, float high, float step=0, str fmt="%.2f", int opt=0) -> tuple:
-        """Create a slider - returns (result, new_value)"""
-        cdef bytes bfmt
-        cdef float c_value
+    def slider(self, float value, float low, float high, float step=0,
+               str fmt="%.2f", int opt=0, key=None) -> tuple:
+        """Return (result, new_value).
+
+        Args:
+            fmt (str): One %f/%e/%g conversion, width <= 99, precision <= 20
+            key (optional): ID key. Defaults to the caller's code location.
+        """
+        cdef bytes bfmt = _check_fmt(fmt)
+        cdef bytes bkey = self._widget_key(key)
         cdef int result
+        self._require_layout()
+        self._reserve(1, 1, 0, 0, 0, MU_MAX_FMT)
+        self._claim(self._hash(bkey), "slider")
+        self._real_slot = value
+        mu_push_id(self.ptr, <const char*>bkey, len(bkey))
+        result = mu_slider_ex(self.ptr, &self._real_slot, low, high, step, bfmt, opt)
+        mu_pop_id(self.ptr)
+        return (result, self._real_slot)
 
-        bfmt = fmt.encode('utf-8')
-        c_value = value
-        result = mu_slider_ex(self.ptr, &c_value, low, high, step, bfmt, opt)
-        return (result, c_value)
+    def number(self, float value, float step, str fmt="%.2f", int opt=0, key=None) -> tuple:
+        """Return (result, new_value). Drag to change; shift-click to type.
 
-
-    def number(self, float value, float step, str fmt="%.2f", int opt=0) -> tuple:
-        """Create a number input - returns (result, new_value)"""
-        cdef bytes bfmt
-        cdef float c_value
+        Args:
+            fmt (str): One %f/%e/%g conversion, width <= 99, precision <= 20
+            key (optional): ID key. Defaults to the caller's code location.
+        """
+        cdef bytes bfmt = _check_fmt(fmt)
+        cdef bytes bkey = self._widget_key(key)
         cdef int result
+        self._require_layout()
+        self._reserve(1, 1, 0, 0, 0, MU_MAX_FMT)
+        self._claim(self._hash(bkey), "number")
+        self._real_slot = value
+        mu_push_id(self.ptr, <const char*>bkey, len(bkey))
+        result = mu_number_ex(self.ptr, &self._real_slot, step, bfmt, opt)
+        mu_pop_id(self.ptr)
+        return (result, self._real_slot)
 
-        bfmt = fmt.encode('utf-8')
-        c_value = value
-        result = mu_number_ex(self.ptr, &c_value, step, bfmt, opt)
-        return (result, c_value)
-
+    cdef int _begin_header(self, bytes blabel, str label, str what) except -1:
+        self._require_layout()
+        self._reserve(1, 1, 0, 0, 0, len(blabel))
+        cdef mu_Id wid = self._hash(blabel)
+        self._claim(wid, f"{what} {label!r}")
+        self._require_pool_slot(self.ptr.treenode_pool, MU_TREENODEPOOL_SIZE, wid,
+                                "expanded headers/tree nodes")
+        return 0
 
     def header(self, str label, int opt=0) -> int:
-        """Create a header"""
+        """Collapsible header; returns nonzero while expanded. No end call."""
         cdef bytes blabel = label.encode('utf-8')
+        self._begin_header(blabel, label, "header")
         return mu_header_ex(self.ptr, blabel, opt)
 
     def begin_treenode(self, str label, int opt=0) -> int:
-        """Begin a tree node"""
+        """Returns nonzero while expanded; then call end_treenode()."""
         cdef bytes blabel = label.encode('utf-8')
-        return mu_begin_treenode_ex(self.ptr, blabel, opt)
+        self._begin_header(blabel, label, "tree node")
+        cdef int res = mu_begin_treenode_ex(self.ptr, blabel, opt)
+        if res:
+            self._open("treenode")
+        return res
 
     def end_treenode(self):
-        """End a tree node"""
+        self._close("treenode")
         mu_end_treenode(self.ptr)
 
+    # ------------------------------------------------------------------
+    # Containers
+
+    cdef int _begin_root(self, bytes bname, str name, int opt, str what) except -1:
+        self._require_frame()
+        self._reserve(1, 3, 1, 1, 1, len(bname))
+        cdef mu_Id wid = self._hash(bname)
+        self._claim_container(wid, f"{what} {name!r}")
+        if not opt & MU_OPT_CLOSED:
+            self._require_pool_slot(self.ptr.container_pool, MU_CONTAINERPOOL_SIZE, wid, "containers")
+        return 0
+
     def begin_window(self, str title, Rect rect, int opt=0) -> int:
-        """Begin a window.
-
-        Args:
-            title (str): The window title
-            rect (Rect): The window bounds
-            opt (int, optional): Window options flags. Defaults to 0.
-
-        Returns:
-            int: Non-zero if the window is open and should be processed
+        """Returns nonzero if open; then call end_window(). Prefer ctx.window().
 
         Raises:
-            RuntimeError: If the context is not properly initialized
-            ValueError: If title is empty or rect has invalid dimensions
-            UnicodeEncodeError: If title cannot be encoded to UTF-8
+            ValueError: If title is empty or rect has negative size
         """
-        if self.ptr == NULL:
-            raise RuntimeError("Context not initialized")
         if not title:
             raise ValueError("Window title cannot be empty")
         if rect.w < 0 or rect.h < 0:
             raise ValueError("Window dimensions cannot be negative")
-
-        cdef bytes btitle
-        try:
-            btitle = title.encode('utf-8')
-        except UnicodeEncodeError as e:
-            raise UnicodeEncodeError("Failed to encode window title") from e
-
-        return mu_begin_window_ex(self.ptr, btitle, rect.to_c(), opt)
+        cdef bytes btitle = title.encode('utf-8')
+        self._begin_root(btitle, title, opt, "window")
+        cdef int res = mu_begin_window_ex(self.ptr, btitle, rect.to_c(), opt)
+        if res:
+            self._open("window")
+        return res
 
     def end_window(self):
-        """End a window"""
+        self._close("window")
         mu_end_window(self.ptr)
 
     def window(self, str title, int x, int y, int w, int h, int opt=0):
-        """Create a window context manager.
-
-        This provides a more convenient way to create windows using Python's 'with' statement.
-        The window will be automatically ended when the context exits.
-
-        Args:
-            title (str): The window title
-            x (int): X position of the window
-            y (int): Y position of the window
-            w (int): Width of the window
-            h (int): Height of the window
-            opt (int, optional): Window options flags. Defaults to 0.
-
-        Returns:
-            Window: A window context manager object
-
-        Example:
-            >>> with ctx.window("My Window", 10, 10, 200, 150) as window:
-            ...     if window.is_open:
-            ...         ctx.label("Hello, World!")
-        """
+        """`with ctx.window(title, x, y, w, h) as win:` -- check `win.is_open`."""
         return Window(self, title, Rect(x, y, w, h), opt)
 
     def open_popup(self, str name):
-        """Open a popup"""
+        """Open popup `name` at the mouse position."""
         cdef bytes bname = name.encode('utf-8')
+        self._require_pool_slot(self.ptr.container_pool, MU_CONTAINERPOOL_SIZE,
+                                self._hash(bname), "containers")
         mu_open_popup(self.ptr, bname)
 
     def begin_popup(self, str name) -> int:
-        """Begin a popup"""
+        """Returns nonzero if open; then call end_popup(). Prefer ctx.popup()."""
         cdef bytes bname = name.encode('utf-8')
-        return mu_begin_popup(self.ptr, bname)
+        self._begin_root(bname, name, MU_OPT_CLOSED, "popup")
+        cdef int res = mu_begin_popup(self.ptr, bname)
+        if res:
+            self._open("popup")
+        return res
 
     def end_popup(self):
-        """End a popup"""
+        self._close("popup")
         mu_end_popup(self.ptr)
 
     def begin_panel(self, str name, int opt=0):
-        """Begin a panel"""
+        """Scrollable region in the next cell; call end_panel(). Prefer ctx.panel().
+
+        Raises:
+            ValueError: If opt includes Option.CLOSED (microui dereferences NULL).
+        """
+        if opt & MU_OPT_CLOSED:
+            raise ValueError("Option.CLOSED is not valid for panels")
         cdef bytes bname = name.encode('utf-8')
+        self._require_layout()
+        self._reserve(1, 2, 1, 1, 0, len(bname))
+        cdef mu_Id wid = self._hash(bname)
+        self._claim_container(wid, f"panel {name!r}")
+        self._require_pool_slot(self.ptr.container_pool, MU_CONTAINERPOOL_SIZE, wid, "containers")
         mu_begin_panel_ex(self.ptr, bname, opt)
+        self._open("panel")
 
     def end_panel(self):
-        """End a panel"""
+        self._close("panel")
         mu_end_panel(self.ptr)
 
-    # Drawing functions
+    def get_current_container(self):
+        """Innermost open window/panel/popup, or None."""
+        if self.ptr.container_stack.idx == 0:
+            return None
+        return ContainerWrapper.from_ptr(mu_get_current_container(self.ptr), self)
+
+    def get_container(self, str name):
+        """Container for window `name`, created if absent."""
+        cdef bytes bname = name.encode('utf-8')
+        self._require_pool_slot(self.ptr.container_pool, MU_CONTAINERPOOL_SIZE,
+                                self._hash(bname), "containers")
+        return ContainerWrapper.from_ptr(mu_get_container(self.ptr, bname), self)
+
+    def bring_to_front(self, ContainerWrapper container):
+        """Raise a window or popup above all others."""
+        if container.ptr == NULL:
+            raise ValueError("Container is not valid")
+        mu_bring_to_front(self.ptr, container.ptr)
+
+    # Context managers. Each closes its scope when the body exits. If the
+    # body raised, a failure while closing is dropped so the original
+    # exception propagates.
+    def treenode(self, str label, int opt=0):
+        """`with ctx.treenode(label) as expanded:`"""
+        cdef int opened = self.begin_treenode(label, opt)
+        return _scoped(bool(opened), self.end_treenode if opened else None)
+
+    def popup(self, str name):
+        """`with ctx.popup(name) as is_open:`"""
+        cdef int opened = self.begin_popup(name)
+        return _scoped(bool(opened), self.end_popup if opened else None)
+
+    def panel(self, str name, int opt=0):
+        """`with ctx.panel(name) as container:`"""
+        self.begin_panel(name, opt)
+        return _scoped(self.get_current_container(), self.end_panel)
+
+    def column(self):
+        """`with ctx.column():`"""
+        self.layout_begin_column()
+        return _scoped(None, self.layout_end_column)
+
+    def id_scope(self, data):
+        """`with ctx.id_scope(key):` -- scope every ID in the block."""
+        self.push_id(data)
+        return _scoped(None, self.pop_id)
+
+    # ------------------------------------------------------------------
+    # Drawing (inside a window or panel; queued in the command list)
+
     def draw_rect(self, Rect rect, Color color):
-        """Draw a rectangle"""
+        self._require_clip()
+        self._reserve()
         mu_draw_rect(self.ptr, rect.to_c(), color.to_c())
 
     def draw_box(self, Rect rect, Color color):
-        """Draw a box"""
+        """Draw a 1-pixel outline."""
+        self._require_clip()
+        self._reserve()
         mu_draw_box(self.ptr, rect.to_c(), color.to_c())
 
-    def draw_text(self, font, str text, Vec2 pos, Color color):
-        """Draw text"""
+    def draw_text(self, str text, Vec2 pos, Color color):
+        """Draw text at `pos` with the style font."""
         cdef bytes btext = text.encode('utf-8')
-        r_draw_text(btext, pos.to_c(), color.to_c())
-        # mu_draw_text(self.ptr, <mu_Font>font, btext, len(btext), pos.to_c(), color.to_c())
+        self._require_clip()
+        self._reserve(0, 0, 0, 0, 0, len(btext))
+        mu_draw_text(self.ptr, self.ptr.style.font, btext, len(btext), pos.to_c(), color.to_c())
 
     def draw_icon(self, int id, Rect rect, Color color):
-        """Draw an icon"""
+        """Draw `Icon` `id` centered in `rect`."""
+        if not 0 < id < MU_ICON_MAX:
+            raise ValueError("Icon id out of range")
+        self._require_clip()
+        self._reserve()
         mu_draw_icon(self.ptr, id, rect.to_c(), color.to_c())
 
-    # Utility functions
-    @staticmethod
-    def vec2(int x, int y) -> Vec2:
-        """Create a Vec2"""
-        return Vec2.from_c(mu_vec2(x, y))
-
-    @staticmethod
-    def rect(int x, int y, int w, int h) -> Rect:
-        """Create a Rect"""
-        return Rect.from_c(mu_rect(x, y, w, h))
-
-    @staticmethod
-    def color(int r, int g, int b, int a=255) -> Color:
-        """Create a Color"""
-        return Color.from_c(mu_color(r, g, b, a))
-
-    # Command iteration reset
-    def reset_command_iterator(self):
-        """Reset command iterator to beginning"""
-        self.current_command = NULL
-
-    # Container access
-    def get_current_container(self):
-        """Get the current container - returns None if no container"""
-        cdef mu_Container* container = mu_get_current_container(self.ptr)
-        if container == NULL:
-            return None
-        # Return a simple wrapper with basic properties
-        return ContainerWrapper.from_ptr(container)
-
-    def get_container(self, str name):
-        """Get a container by name"""
-        cdef bytes bname = name.encode('utf-8')
-        cdef mu_Container* container = mu_get_container(self.ptr, bname)
-        if container == NULL:
-            return None
-        return ContainerWrapper.from_ptr(container)
-
-    # Mouse over check
+    # Custom widget primitives
     def mouse_over(self, Rect rect) -> int:
-        """Check if mouse is over a rectangle"""
+        """Nonzero if the mouse is over `rect` within the current clip and window."""
+        self._require_clip()
         return mu_mouse_over(self.ptr, rect.to_c())
 
-    # Command processing
+    def update_control(self, unsigned int id, Rect rect, int opt=0):
+        """Update hover/focus state of control `id` occupying `rect`."""
+        self._require_clip()
+        mu_update_control(self.ptr, id, rect.to_c(), opt)
+
+    def draw_control_frame(self, unsigned int id, Rect rect, int colorid, int opt=0):
+        """Draw a control frame; `colorid` shifts to hover/focus variants."""
+        if not 0 <= colorid < MU_COLOR_MAX - 2:
+            raise IndexError("Color index out of range")
+        self._require_clip()
+        self._reserve()
+        mu_draw_control_frame(self.ptr, id, rect.to_c(), colorid, opt)
+
+    def draw_control_text(self, str text, Rect rect, int colorid, int opt=0):
+        """Draw text clipped and aligned within `rect`."""
+        if not 0 <= colorid < MU_COLOR_MAX:
+            raise IndexError("Color index out of range")
+        cdef bytes btext = text.encode('utf-8')
+        self._require_clip()
+        self._reserve(0, 1, 0, 0, 0, len(btext))
+        mu_draw_control_text(self.ptr, btext, rect.to_c(), colorid, opt)
+
+    # ------------------------------------------------------------------
+    # Commands (after end())
+
+    def reset_command_iterator(self):
+        """Restart next_command() from the first command."""
+        self.current_command = NULL
+
     def next_command(self):
-        """Get the next command from the command buffer"""
-        cdef int result = mu_next_command(self.ptr, &self.current_command)
+        """Return the next command of the last finished frame, or None.
 
-        if result == 0 or self.current_command == NULL:
+        Raises:
+            RuntimeError: During a frame; jump targets are set by end().
+        """
+        if self._in_frame:
+            raise RuntimeError("commands are available after end()")
+        if mu_next_command(self.ptr, &self.current_command) == 0 or self.current_command == NULL:
             return None
-
-        # Create a Python wrapper for the command based on its type
         if self.current_command.type == MU_COMMAND_RECT:
             return RectCommand.from_c(self.current_command.rect)
         elif self.current_command.type == MU_COMMAND_TEXT:
@@ -1051,59 +1271,66 @@ cdef class Context:
             return ClipCommand.from_c(self.current_command.clip)
         elif self.current_command.type == MU_COMMAND_JUMP:
             return JumpCommand.from_c(self.current_command.jump)
-        else:
-            # Return a base command for unknown types
-            return BaseCommand.from_c(self.current_command.base)
+        return BaseCommand.from_c(self.current_command.base)
 
-    def layout_row(self, widths, int height):
-        """Set up a row layout with specific widths.
+    # Utility constructors
+    @staticmethod
+    def vec2(int x, int y) -> Vec2:
+        return Vec2.from_c(mu_vec2(x, y))
 
-        Args:
-            widths: List or tuple of column widths, or None for default
-            height (int): Row height in pixels
+    @staticmethod
+    def rect(int x, int y, int w, int h) -> Rect:
+        return Rect.from_c(mu_rect(x, y, w, h))
 
-        Raises:
-            ValueError: If widths list is too large or contains invalid values
-            MemoryError: If memory allocation fails
-        """
-        cdef int* width_array = NULL
-        cdef int items = 0
-        cdef int i
-        cdef size_t allocation_size
+    @staticmethod
+    def color(int r, int g, int b, int a=255) -> Color:
+        return Color(r, g, b, a)
 
-        if widths is not None:
-            if isinstance(widths, (list, tuple)):
-                items = len(widths)
+    # ------------------------------------------------------------------
+    # Read-only state
 
-                # Validate array size to prevent overflow
-                if items < 0:
-                    raise ValueError("Invalid widths list")
-                if items > 1000:  # Reasonable limit
-                    raise ValueError("Too many width entries (max 1000)")
+    @property
+    def hover(self) -> int:
+        """ID of the hovered control, or 0."""
+        return self.ptr.hover
 
-                if items > 0:
-                    # Check for potential overflow in allocation size
-                    allocation_size = items * sizeof(int)
-                    if allocation_size / sizeof(int) != items:
-                        raise ValueError("Width array too large")
+    @property
+    def focus(self) -> int:
+        """ID of the focused control, or 0."""
+        return self.ptr.focus
 
-                    width_array = <int*>malloc(allocation_size)
-                    if width_array == NULL:
-                        raise MemoryError("Failed to allocate width array")
+    @property
+    def last_id(self) -> int:
+        """ID most recently produced by get_id() or a widget."""
+        return self.ptr.last_id
 
-                    # Copy with validation
-                    for i in range(items):
-                        try:
-                            width_array[i] = int(widths[i])
-                        except (ValueError, TypeError) as e:
-                            free(width_array)
-                            raise ValueError(f"Invalid width value at index {i}: {widths[i]}")
+    @property
+    def mouse_pos(self) -> Vec2:
+        return Vec2.from_c(self.ptr.mouse_pos)
 
-        try:
-            mu_layout_row(self.ptr, items, width_array, height)
-        finally:
-            if width_array != NULL:
-                free(width_array)
+    @property
+    def mouse_delta(self) -> Vec2:
+        return Vec2.from_c(self.ptr.mouse_delta)
+
+    @property
+    def mouse_down(self) -> int:
+        """Bitmask of `Mouse` buttons held."""
+        return self.ptr.mouse_down
+
+    @property
+    def mouse_pressed(self) -> int:
+        """Bitmask of `Mouse` buttons pressed this frame."""
+        return self.ptr.mouse_pressed
+
+    @property
+    def key_down(self) -> int:
+        """Bitmask of `Key` modifiers held."""
+        return self.ptr.key_down
+
+    @property
+    def key_pressed(self) -> int:
+        """Bitmask of `Key` keys pressed this frame."""
+        return self.ptr.key_pressed
 
 
 # Window context manager class
@@ -1175,22 +1402,37 @@ cdef class Window:
         Returns:
             None: Does not suppress exceptions
         """
-        if self.is_open:
+        if not self.is_open:
+            return None
+        self.is_open = False
+        if exc_type is None:
             self.ctx.end_window()
+        else:
+            try:
+                self.ctx.end_window()
+            except RuntimeError:
+                pass  # keep the original exception
         return None
 
 
 # Container wrapper class
 cdef class ContainerWrapper:
+    """View of a microui container (window, panel, popup).
+
+    Field reads return copies; assign a whole value to write through,
+    e.g. `win.rect = Rect(...)`, not `win.rect.w = ...`.
+    """
     cdef mu_Container* ptr
+    cdef object _ref  # keeps the owning Context alive
 
     def __cinit__(self):
         self.ptr = NULL
 
     @staticmethod
-    cdef ContainerWrapper from_ptr(mu_Container* ptr):
+    cdef ContainerWrapper from_ptr(mu_Container* ptr, object ref=None):
         cdef ContainerWrapper wrapper = ContainerWrapper.__new__(ContainerWrapper)
         wrapper.ptr = ptr
+        wrapper._ref = ref
         return wrapper
 
     @property
@@ -1198,6 +1440,11 @@ cdef class ContainerWrapper:
         if self.ptr == NULL:
             return Rect(0, 0, 0, 0)
         return Rect.from_c(self.ptr.rect)
+
+    @rect.setter
+    def rect(self, Rect value):
+        if self.ptr != NULL:
+            self.ptr.rect = value.to_c()
 
     @property
     def body(self) -> Rect:
@@ -1217,11 +1464,27 @@ cdef class ContainerWrapper:
             return Vec2(0, 0)
         return Vec2.from_c(self.ptr.scroll)
 
+    @scroll.setter
+    def scroll(self, Vec2 value):
+        if self.ptr != NULL:
+            self.ptr.scroll = value.to_c()
+
+    @property
+    def zindex(self) -> int:
+        if self.ptr == NULL:
+            return 0
+        return self.ptr.zindex
+
     @property
     def open(self) -> int:
         if self.ptr == NULL:
             return 0
         return self.ptr.open
+
+    @open.setter
+    def open(self, value):
+        if self.ptr != NULL:
+            self.ptr.open = 1 if value else 0
 
 
 # Command wrapper classes
@@ -1266,59 +1529,41 @@ cdef class RectCommand:
 
 
 cdef class TextCommand:
-    cdef mu_TextCommand* _cmd
-
-    @staticmethod
-    cdef TextCommand from_c(mu_TextCommand cmd):
-        cdef TextCommand result = TextCommand.__new__(TextCommand)
-        # This won't work with flexible array members, use from_ptr instead
-        raise NotImplementedError("Use from_ptr for TextCommand with flexible array members")
+    # Copied on creation: the command buffer is overwritten next frame.
+    cdef int _type
+    cdef mu_Vec2 _pos
+    cdef mu_Color _color
+    cdef str _text
 
     @staticmethod
     cdef TextCommand from_ptr(mu_TextCommand* cmd):
         cdef TextCommand result = TextCommand.__new__(TextCommand)
-        result._cmd = cmd
+        result._type = cmd.base.type
+        result._pos = cmd.pos
+        result._color = cmd.color
+        result._text = (<const char*>cmd.str).decode('utf-8', errors='replace')
         return result
 
     @property
     def type(self) -> int:
-        return self._cmd.base.type
+        return self._type
 
     @property
     def font(self):
-        return <object>self._cmd.font
+        """Always None: the bundled renderer has one font."""
+        return None
 
     @property
     def pos(self) -> Vec2:
-        return Vec2.from_c(self._cmd.pos)
+        return Vec2.from_c(self._pos)
 
     @property
     def color(self) -> Color:
-        return Color.from_c(self._cmd.color)
+        return Color.from_c(self._color)
 
     @property
     def text(self) -> str:
-        cdef const char* str_ptr
-        cdef int length
-        cdef bytes py_bytes
-
-        # Get the string pointer from the flexible array member
-        # The str field is a flexible array member that points to the actual string data
-        str_ptr = self._cmd.str
-        if str_ptr == NULL:
-            return ""
-
-        # Convert C string to Python string
-        try:
-            # Use strlen to get the proper length
-            length = strlen(str_ptr)
-            if length == 0:
-                return ""
-            # Create a bytes object from the C string
-            py_bytes = str_ptr[:length]
-            return py_bytes.decode('utf-8', errors='replace')
-        except Exception:
-            return ""
+        return self._text
 
 
 cdef class IconCommand:
@@ -1474,7 +1719,7 @@ cdef class Textbox:
     cdef int buffer_size
     cdef str current_text
 
-    def __cinit__(self, int buffer_size=128):
+    def __cinit__(self, buffer_size=128):
         """Initialize the textbox with the specified buffer size.
 
         Args:
@@ -1484,7 +1729,7 @@ cdef class Textbox:
             ValueError: If buffer_size is invalid
             MemoryError: If memory allocation fails
         """
-        # Validate buffer size
+        buffer_size = operator.index(buffer_size)
         if buffer_size < 2:
             raise ValueError("Buffer size must be at least 2 bytes")
         if buffer_size > 65536:  # 64KB limit
@@ -1521,12 +1766,12 @@ cdef class Textbox:
         if self.buffer == NULL:
             raise RuntimeError("Textbox buffer is corrupted")
 
+        ctx._require_layout()
+        ctx._reserve(0, 1, 0, 0, 0, self.buffer_size)
+        # Same ID mu_textbox_ex derives: the buffer address, unique per Textbox.
+        ctx._claim(mu_get_id(ctx.ptr, &self.buffer, sizeof(self.buffer)), "Textbox")
         cdef int result = mu_textbox_ex(ctx.ptr, self.buffer, self.buffer_size, opt)
-        try:
-            self.current_text = self.buffer.decode('utf-8', errors='replace')
-        except Exception as e:
-            # Fallback to empty string if decoding fails completely
-            self.current_text = ""
+        self.current_text = self.buffer.decode('utf-8', errors='replace')
 
         return (result, self.current_text)
 
@@ -1578,38 +1823,130 @@ cdef class Textbox:
 
 # Renderer functions exposed as module-level functions
 def renderer_init():
-    """Initialize the renderer"""
-    r_init()
+    """Initialize the renderer with an 800x600 untitled window."""
+    renderer_init_window("", 800, 600, False)
+
+def renderer_init_window(str title="pymui", int width=800, int height=600, bint resizable=True):
+    """Create the renderer window and GL context. SDL video must be initialized.
+
+    Raises:
+        RuntimeError: If the window or GL context cannot be created.
+    """
+    global _window_open
+    if width <= 0 or height <= 0:
+        raise ValueError("Window dimensions must be positive")
+    cdef bytes btitle = title.encode('utf-8')
+    if r_init_window(btitle, width, height, resizable) != 0:
+        raise RuntimeError("Failed to create renderer window")
+    _window_open = True
+
+def renderer_resize(int width, int height):
+    """Update the viewport after the window is resized."""
+    r_resize(width, height)
+
+def renderer_shutdown():
+    """Destroy the renderer window and GL context."""
+    global _window_open
+    r_shutdown()
+    _window_open = False
+
+def render(Context ctx, Color bg=None):
+    """Clear to `bg` (if given), draw `ctx`'s command list, and present.
+
+    Iterates commands in C, so no per-command Python objects are created.
+
+    Raises:
+        RuntimeError: If no renderer window exists.
+    """
+    _require_window()
+    if ctx._in_frame:
+        raise RuntimeError("render() must follow end()")
+    cdef mu_Command* cmd = NULL
+    if bg is not None:
+        r_clear(bg.to_c())
+    while mu_next_command(ctx.ptr, &cmd):
+        if cmd.type == MU_COMMAND_TEXT:
+            r_draw_text(cmd.text.str, cmd.text.pos, cmd.text.color)
+        elif cmd.type == MU_COMMAND_RECT:
+            r_draw_rect(cmd.rect.rect, cmd.rect.color)
+        elif cmd.type == MU_COMMAND_ICON:
+            r_draw_icon(cmd.icon.id, cmd.icon.rect, cmd.icon.color)
+        elif cmd.type == MU_COMMAND_CLIP:
+            r_set_clip_rect(cmd.clip.rect)
+    r_present()
 
 def renderer_draw_rect(Rect rect, Color color):
-    """Draw a rectangle"""
+    """Queue a filled rectangle."""
+    _require_window()
     r_draw_rect(rect.to_c(), color.to_c())
 
 def renderer_draw_text(str text, Vec2 pos, Color color):
-    """Draw text"""
-    r_draw_text(text.encode(), pos.to_c(), color.to_c())
+    """Queue text with the current font."""
+    _require_window()
+    r_draw_text(text.encode('utf-8'), pos.to_c(), color.to_c())
 
 def renderer_draw_icon(int icon_id, Rect rect, Color color):
-    """Draw an icon"""
+    """Queue `Icon` `icon_id` centered in `rect`."""
+    if not 0 < icon_id < MU_ICON_MAX:
+        raise ValueError("Icon id out of range")
+    _require_window()
     r_draw_icon(icon_id, rect.to_c(), color.to_c())
 
-def renderer_get_text_width(str text, int length):
-    """Get text width"""
-    return r_get_text_width(text.encode(), length)
+def renderer_get_text_width(str text, int length=-1) -> int:
+    """Width in pixels of `text`, or of its first `length` UTF-8 bytes."""
+    return r_get_text_width(text.encode('utf-8'), length)
 
-def renderer_get_text_height():
-    """Get text height"""
+def renderer_get_text_height() -> int:
+    """Line height in pixels of the current font."""
     return r_get_text_height()
 
 def renderer_set_clip_rect(Rect rect):
-    """Set clipping rectangle"""
+    _require_window()
     r_set_clip_rect(rect.to_c())
 
 def renderer_clear(Color color):
-    """Clear the screen"""
+    _require_window()
     r_clear(color.to_c())
 
 def renderer_present():
-    """Present the rendered frame"""
+    _require_window()
     r_present()
 
+def load_font(source, float size=16.0):
+    """Render and measure all text with a TrueType/OpenType font.
+
+    Applies to every Context and works without a window. The bundled
+    bitmap font covers ASCII only; a loaded font covers whatever its file
+    does, and draws its own missing-glyph box for the rest.
+
+    Only load trusted files. stb_truetype checks the table directory but
+    not the tables, so a crafted file can make it read out of bounds.
+
+    Args:
+        source: Path (str or os.PathLike), or the font file's bytes.
+        size: Pixel height, 6 to 96.
+
+    Raises:
+        ValueError: If the data is not a usable font or size is out of range.
+        OSError: If the file cannot be read.
+    """
+    if not 6 <= size <= 96:
+        raise ValueError("font size must be 6..96 pixels")
+    if isinstance(source, (bytes, bytearray, memoryview)):
+        data = bytes(source)
+    else:
+        with open(os.fspath(source), "rb") as f:
+            data = f.read(_MAX_FONT_BYTES + 1)
+    if len(data) > _MAX_FONT_BYTES:
+        raise ValueError("font file too large (max 64 MB)")
+    cdef const unsigned char* buf = data
+    if r_load_font(buf, len(data), size) != 0:
+        raise ValueError("not a usable TrueType/OpenType font")
+
+def reset_font():
+    """Return to the bundled ASCII bitmap font."""
+    r_unload_font()
+
+def font_loaded() -> bool:
+    """True if load_font() is in effect."""
+    return bool(r_font_loaded())

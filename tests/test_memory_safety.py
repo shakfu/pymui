@@ -6,14 +6,9 @@ These tests ensure that pymui operations don't cause memory leaks,
 buffer overflows, or other memory-related issues.
 """
 
-import sys
 import gc
 import tracemalloc
-from pathlib import Path
 
-# Add src to path for imports
-ROOTDIR = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(ROOTDIR))
 
 import pytest
 import pymui

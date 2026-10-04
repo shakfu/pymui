@@ -6,12 +6,7 @@ This module tests the context manager protocol implementation for pymui.Context,
 ensuring that begin() and end() are called automatically when using the 'with' statement.
 """
 
-import sys
-from pathlib import Path
 
-# Add src to path for imports
-ROOTDIR = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(ROOTDIR))
 
 import pytest
 import pymui

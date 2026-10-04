@@ -3,12 +3,7 @@ Pytest configuration and fixtures for pymui tests.
 """
 
 import pytest
-import sys
-from pathlib import Path
 
-# Add src to path for imports
-ROOTDIR = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(ROOTDIR))
 
 try:
     from pymui import pymui

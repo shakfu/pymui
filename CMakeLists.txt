@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(pymui VERSION 1.4.8)
+# Version lives in pyproject.toml only.
+project(pymui LANGUAGES C)
 
 set(CMAKE_C_STANDARD 17)
 

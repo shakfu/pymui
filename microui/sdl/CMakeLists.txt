@@ -54,6 +54,7 @@ target_link_libraries(
     "$<$<PLATFORM_ID:Darwin>:-framework OpenGL>"
     "$<$<PLATFORM_ID:Linux>:-lGL>"
     -lSDL2
+    m  # stb_truetype
 )
 
 add_subdirectory(demo)

@@ -1,633 +1,147 @@
 # PyMUI Development Guide
 
-## Quick Start
+Structure and design are in [architecture.md](architecture.md).
 
-### Prerequisites
+## Prerequisites
 
-- Python 3.10 or higher
-- `uv` package manager
-- CMake 3.15 or higher
-- SDL2 development libraries (for demos)
-- C compiler (GCC, Clang, or MSVC)
+- Python 3.10+ (`.python-version` pins 3.13 for local work)
+- `uv`
+- CMake 3.28+ and a C11 compiler
+- SDL2 development headers and OpenGL (`libsdl2-dev` on Debian/Ubuntu,
+  `brew install sdl2` on macOS)
 
-### Setup Development Environment
+CI builds on Ubuntu only. The CMake files look up the Homebrew prefix on
+macOS; Windows is untested.
 
-1. **Clone the repository:**
-   ```bash
-   git clone <repository-url>
-   cd pymui
-   git submodule update --init --recursive
-   ```
+## Setup
 
-2. **Install dependencies:**
-   ```bash
-   uv sync --dev
-   ```
-
-3. **Build the project:**
-   ```bash
-   make build
-   ```
-
-4. **Run tests:**
-   ```bash
-   make test
-   ```
-
-5. **Run demo:**
-   ```bash
-   make demo
-   ```
-
-## Development Workflow
-
-### Building and Testing
-
-**Standard workflow:**
 ```bash
-# Make changes to source code
-make build              # Rebuild
-make test              # Run tests
-make demo              # Test demo
-```
-
-**Performance testing:**
-```bash
-make performance-test   # Run benchmarks
-make memory-test       # Check for memory leaks
-```
-
-**Comprehensive testing:**
-```bash
-uv run pytest tests/   # All tests
-uv run pytest tests/test_property_*.py  # Property-based tests
-uv run pytest tests/test_memory_safety.py  # Memory safety tests
-```
-
-### Code Organization
-
-```
-pymui/
- src/pymui/          # Main package
-    pymui.pyx      # Cython wrapper
-    __init__.py    # Python package
- microui/           # Upstream C library
-    microui.c
-    microui.h
-    sdl/          # SDL renderer
- tests/            # Test suite
-    test_*.py     # Unit tests
-    *demo*.py     # Demo applications
- scripts/          # Development scripts
-    benchmark.py  # Performance testing
-    memory_leak_test.py  # Memory testing
- doc/              # Documentation
- .github/          # CI/CD workflows
-```
-
-### Adding New Features
-
-#### 1. Core Data Structures
-
-**Example: Adding a new data type**
-
-```python
-# In pymui.pyx
-cdef class NewType:
-    """New data type for PyMUI."""
-
-    cdef mu_new_type c_data
-
-    def __init__(self, param1: int, param2: float):
-        """Initialize new type."""
-        self.c_data.param1 = param1
-        self.c_data.param2 = param2
-
-    @property
-    def param1(self) -> int:
-        """Get param1 value."""
-        return self.c_data.param1
-
-    @param1.setter
-    def param1(self, value: int) -> None:
-        """Set param1 value."""
-        self.c_data.param1 = value
-```
-
-**Testing the new type:**
-```python
-# In tests/test_new_type.py
-class TestNewType:
-    def test_creation(self):
-        obj = pymui.NewType(1, 2.0)
-        assert obj.param1 == 1
-        assert obj.param2 == 2.0
-
-    def test_property_assignment(self):
-        obj = pymui.NewType(1, 2.0)
-        obj.param1 = 5
-        assert obj.param1 == 5
-```
-
-#### 2. Widget Functions
-
-**Example: Adding a new widget**
-
-```python
-# In pymui.pyx (Context class)
-def new_widget(self, str label, int value, int opt=0) -> tuple:
-    """
-    Create a new widget.
-
-    Args:
-        label (str): Widget label
-        value (int): Initial value
-        opt (int, optional): Options flags
-
-    Returns:
-        tuple: (result_flags, new_value)
-    """
-    cdef bytes label_bytes = label.encode('utf-8')
-    cdef char* label_cstr = label_bytes
-    cdef int new_value = value
-
-    cdef int result = mu_new_widget(&self.c_ctx, label_cstr, &new_value, opt)
-
-    return result, new_value
-```
-
-**Testing the new widget:**
-```python
-# In tests/test_widgets.py
-def test_new_widget(ctx):
-    ctx.begin()
-    result, value = ctx.new_widget("Test", 42)
-    ctx.end()
-
-    assert isinstance(result, int)
-    assert isinstance(value, int)
-```
-
-#### 3. Property-Based Tests
-
-**Adding property-based tests for new features:**
-
-```python
-# In tests/test_property_new.py
-from hypothesis import given, strategies as st
-
-@given(value=st.integers(min_value=0, max_value=1000),
-       label=st.text(min_size=1, max_size=50))
-def test_new_widget_properties(ctx, value, label):
-    """Test new widget with various inputs."""
-    assume(all(ord(c) < 65536 for c in label))  # Basic Unicode only
-
-    ctx.begin()
-    try:
-        result, new_value = ctx.new_widget(label, value)
-        assert isinstance(result, int)
-        assert isinstance(new_value, int)
-    except UnicodeEncodeError:
-        pass  # Expected for some Unicode
-    finally:
-        ctx.end()
-```
-
-### Performance Optimization
-
-#### Identifying Bottlenecks
-
-**Use the benchmark script:**
-```bash
-python scripts/benchmark.py --save-baseline
-# Make changes
-python scripts/benchmark.py --compare
-```
-
-**Profile specific operations:**
-```python
-import cProfile
-import pymui
-
-def profile_operation():
-    ctx = pymui.Context()
-    for i in range(1000):
-        ctx.begin()
-        ctx.text(f"Text {i}")
-        ctx.end()
-
-cProfile.run('profile_operation()')
-```
-
-#### Common Optimization Patterns
-
-**Minimize Python-C transitions:**
-```python
-# Slow: Multiple function calls
-for i in range(1000):
-    ctx.text(f"Item {i}")
-
-# Better: Batch operations
-text_items = [f"Item {i}" for i in range(1000)]
-for text in text_items:
-    ctx.text(text)
-```
-
-**Use appropriate data structures:**
-```python
-# Slow: Creating objects in loop
-for i in range(1000):
-    rect = pymui.Rect(i, i, 10, 10)
-
-# Better: Reuse objects
-rect = pymui.Rect(0, 0, 10, 10)
-for i in range(1000):
-    rect.x = i
-    rect.y = i
-```
-
-### Memory Safety
-
-#### Buffer Overflow Prevention
-
-**Always validate buffer sizes:**
-```python
-def safe_textbox_operation(text: str, buffer_size: int):
-    if buffer_size <= 0:
-        raise ValueError("Buffer size must be positive")
-
-    if buffer_size > 1024 * 1024:  # 1MB limit
-        raise ValueError("Buffer size too large")
-
-    textbox = pymui.Textbox(buffer_size)
-    textbox.text = text  # Automatically truncated if needed
-    return textbox.text
-```
-
-**Test boundary conditions:**
-```python
-def test_buffer_boundaries():
-    tb = pymui.Textbox(16)
-
-    # Test exact boundary
-    tb.text = "A" * 15  # Leaves room for null terminator
-    assert len(tb.text) <= 15
-
-    # Test overflow
-    tb.text = "B" * 100  # Much larger than buffer
-    assert len(tb.text.encode('utf-8')) < 16
-```
-
-#### Memory Leak Detection
-
-**Run memory tests regularly:**
-```bash
-make memory-test
-```
-
-**Add memory checks to new features:**
-```python
-def test_new_feature_memory_safety():
-    """Test that new feature doesn't leak memory."""
-    import gc
-    import tracemalloc
-
-    tracemalloc.start()
-    baseline = tracemalloc.take_snapshot()
-
-    # Perform operations
-    for i in range(1000):
-        # Your new feature operations
-        pass
-
-    gc.collect()
-    current = tracemalloc.take_snapshot()
-    top_stats = current.compare_to(baseline, 'lineno')
-
-    # Check for significant growth
-    growth = sum(stat.size_diff for stat in top_stats[:10])
-    assert growth < 1024 * 1024  # Less than 1MB growth
-```
-
-### Error Handling
-
-#### Graceful Error Recovery
-
-**Handle encoding errors:**
-```python
-def safe_text_operation(ctx, text: str):
-    try:
-        ctx.text(text)
-    except UnicodeEncodeError:
-        # Fallback to safe representation
-        safe_text = text.encode('ascii', 'replace').decode('ascii')
-        ctx.text(safe_text)
-```
-
-**Validate input parameters:**
-```python
-def validate_color_components(r, g, b, a=255):
-    """Validate color component values."""
-    for component, name in [(r, 'red'), (g, 'green'), (b, 'blue'), (a, 'alpha')]:
-        if not isinstance(component, int):
-            raise TypeError(f"{name} component must be an integer")
-        if not 0 <= component <= 255:
-            raise ValueError(f"{name} component must be in range 0-255")
-
-    return pymui.Color(r, g, b, a)
-```
-
-### Documentation
-
-#### Code Documentation
-
-**Use comprehensive docstrings:**
-```python
-def complex_widget(self, data: list, options: dict) -> tuple:
-    """
-    Create a complex widget with multiple configuration options.
-
-    This widget demonstrates advanced functionality including data binding,
-    custom styling, and event handling.
-
-    Args:
-        data (list): List of data items to display. Each item should be
-            a dictionary with 'label' and 'value' keys.
-        options (dict): Configuration options:
-            - 'style': Style configuration dictionary
-            - 'selectable': Whether items can be selected (default: True)
-            - 'multi_select': Allow multiple selection (default: False)
-
-    Returns:
-        tuple: (result_flags, selected_indices)
-            - result_flags (int): Combination of MU_RES_* flags
-            - selected_indices (list): List of selected item indices
-
-    Raises:
-        ValueError: If data format is invalid
-        TypeError: If options contains invalid types
-
-    Example:
-        >>> data = [{'label': 'Item 1', 'value': 1}, {'label': 'Item 2', 'value': 2}]
-        >>> options = {'style': {'color': pymui.Color(255, 0, 0)}}
-        >>> result, selected = ctx.complex_widget(data, options)
-    """
-    # Implementation here...
-```
-
-#### Adding Examples
-
-**Create focused examples:**
-```python
-# In examples/new_feature_example.py
-#!/usr/bin/env python3
-"""
-Example demonstrating the new feature.
-
-This example shows how to use the new feature in a practical context,
-including proper setup, error handling, and cleanup.
-"""
-
-import sys
-from pathlib import Path
-
-# Add pymui to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
-import pymui
-
-def main():
-    """Main example function."""
-    ctx = pymui.Context()
-
-    # Example usage
-    ctx.begin()
-
-    # Demonstrate new feature
-    result = ctx.new_feature("example data")
-    print(f"Result: {result}")
-
-    ctx.end()
-
-if __name__ == "__main__":
-    main()
-```
-
-### CI/CD Integration
-
-#### Adding New Tests to CI
-
-**GitHub Actions workflow:**
-```yaml
-# In .github/workflows/test-new-feature.yml
-name: Test New Feature
-
-on:
-  push:
-    paths:
-      - 'src/pymui/new_feature.py'
-      - 'tests/test_new_feature.py'
-
-jobs:
-  test-new-feature:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v7
-    - name: Run new feature tests
-      run: |
-        uv sync --dev
-        uv run pytest tests/test_new_feature.py -v
-```
-
-#### Performance Regression Detection
-
-**Add performance tests:**
-```python
-# In tests/test_performance.py
-def benchmark_new_feature(self):
-    """Benchmark new feature performance."""
-    def operation():
-        ctx = pymui.Context()
-        ctx.begin()
-        ctx.new_feature("test data")
-        ctx.end()
-
-    return self.benchmark(operation, iterations=1000)
-```
-
-### Debugging
-
-#### Common Issues and Solutions
-
-**Context assertion errors:**
-```
-Fatal error: assertion 'ctx->clip_stack.idx > 0' failed
-```
-**Solution:** Ensure proper begin/end pairing:
-```python
-ctx.begin()
-try:
-    # UI operations here
-    pass
-finally:
-    ctx.end()
-```
-
-**Memory corruption:**
-```
-Segmentation fault
-```
-**Solution:** Check buffer sizes and string encoding:
-```python
-# Always validate string inputs
-text = ensure_valid_utf8(user_input)
-ctx.text(text)
-```
-
-**Build failures:**
-```
-Error: Cannot find microui.h
-```
-**Solution:** Update submodules:
-```bash
-git submodule update --init --recursive
-```
-
-#### Debugging Tools
-
-**Use debug builds:**
-```bash
-export CFLAGS="-g -O0"
+git clone <repository-url>
+cd pymui
+uv sync --dev
 make build
+make test
+make demo
 ```
 
-**Memory debugging with Valgrind:**
+microui is vendored under `microui/`; there are no submodules.
+
+`make build` does an editable install. It does not rebuild on import, so run
+it again after editing `.pyx`, `.pxd` or C sources.
+
+## Make targets
+
+| Target | Runs |
+|-|-|
+| `build` | `clean`, then `uv pip install -e .` |
+| `test` | `pytest` over `tests/` |
+| `demo` | `examples/demo.py` |
+| `showcase` | `examples/showcase.py` |
+| `lint` / `format` | `ruff check --fix src/` / `ruff format src/` |
+| `typecheck` | `mypy src/` |
+| `memory-test` | `scripts/memory_leak_test.py --verbose` |
+| `performance-test` | `scripts/benchmark.py` |
+| `clean` | removes `build/`, the built extension, caches |
+
+## Adding a wrapper method
+
+1. Declare the C function in `src/pymui/pymui.pxd`.
+2. In `pymui.pyx`, guard before calling into microui (see
+   [architecture.md#guards](architecture.md#guards)):
+   - `_require_frame()`, `_require_layout()` or `_require_clip()` for the
+     state the call needs.
+   - `_reserve(ids, clips, layouts, containers, roots, cmd)` for what the call
+     pushes at its peak. The arguments are positional: Cython rejects keyword
+     arguments in these `cdef` calls.
+   - `_claim(id, what)` for each control ID; `_claim_container` for containers.
+   - `_open(tag)` after a successful begin, `_close(tag)` before the end.
+   - Validate any value that reaches `sprintf` or a fixed-size buffer.
+3. If microui derives the widget's ID from a pointer, pass a pointer to a
+   `Context` field (as `_real_slot` does), never to a C local.
+4. Update `pymui.pyi` and, for new module names, `__init__.py`.
+5. Test behavior in `tests/test_widgets.py` and each guard in
+   `tests/test_safety.py`.
+
+## Writing tests
+
+Tests run without a display: text measurement uses the baked font atlas, and
+nothing renders unless a test creates a window.
+
+Driving input:
+
+- Place widgets with `ctx.layout_set_next(rect, 0)` (absolute coordinates) so
+  click positions are known.
+- Hover resolves one frame late. Move the mouse, run two frames, then press:
+  see `Harness.click` in `tests/test_widgets.py`.
+- `App.handle_event` takes synthetic `sdl2.SDL_Event` structs; see
+  `tests/test_app.py`.
+
+`tests/test_font.py` needs a TrueType font. It looks for DejaVu Sans
+(`fonts-dejavu-core` on Debian/Ubuntu, installed in CI) and skips otherwise.
+The font is global state: tests that load one restore the bitmap font.
+
+Hypothesis tests live in `tests/test_property_based*.py`. Generate the domain
+you want directly; heavy `.filter()` use trips Hypothesis's `filter_too_much`
+health check intermittently.
+
+## Memory checks
+
 ```bash
-valgrind --tool=memcheck --leak-check=full python demo.py
+make memory-test                                   # RSS and tracemalloc growth per scenario
+uv run python scripts/memory_leak_test.py --iterations 2000 --threshold 5.0
 ```
 
-**Python debugging:**
-```python
-import pdb; pdb.set_trace()  # Set breakpoint
+Valgrind, as CI runs it:
+
+```bash
+CFLAGS="-g -O0" make build                         # keep symbols for file:line
+PYTHONMALLOC=malloc uv run valgrind --tool=memcheck --leak-check=full \
+    --log-file=valgrind_output.log python scripts/valgrind_test.py
+uv run python scripts/check_valgrind.py valgrind_output.log
 ```
 
-### Contributing Guidelines
+`check_valgrind.py` counts only leak records with a frame in the pymui
+extension; CPython's own static allocations are ignored.
 
-#### Code Style
+AddressSanitizer, for the C code (renderer, font parsing), in a separate
+environment so the instrumented build does not replace your editable one:
 
-**Follow existing patterns:**
-- Use Cython for performance-critical code
-- Use Python for high-level interfaces
-- Follow PEP 8 for Python code
-- Use descriptive variable names
-- Add comprehensive docstrings
+```bash
+uv venv /tmp/asan-venv --python 3.13
+CFLAGS="-fsanitize=address -fno-omit-frame-pointer -g -O1" LDFLAGS="-fsanitize=address" \
+    uv pip install --python /tmp/asan-venv/bin/python . pytest hypothesis psutil
+LD_PRELOAD=$(gcc -print-file-name=libasan.so) ASAN_OPTIONS=detect_leaks=0 \
+    /tmp/asan-venv/bin/python -m pytest tests
+```
 
-**Testing requirements:**
-- Unit tests for all new functionality
-- Property-based tests for complex logic
-- Memory safety tests for buffer operations
-- Performance tests for critical paths
+## Benchmarks
 
-**Documentation requirements:**
-- Update architecture.md for structural changes
-- Add examples for new features
-- Update CLAUDE.md for build/test changes
-- Include inline documentation
+```bash
+uv run python scripts/benchmark.py --save-baseline   # writes performance_baseline.txt
+uv run python scripts/benchmark.py --compare
+```
 
-#### Pull Request Process
+`tests/test_performance.py` runs the same suite and fails if any benchmark
+raises or averages over 10 ms.
 
-1. **Create feature branch:**
-   ```bash
-   git checkout -b feature/new-feature
-   ```
+## CI
 
-2. **Implement changes:**
-   - Write code
-   - Add tests
-   - Update documentation
+`.github/workflows/memory-leak-detection.yml` runs on pushes and pull requests
+to `main`, `master` and `develop`, and nightly:
 
-3. **Test thoroughly:**
-   ```bash
-   make test
-   make memory-test
-   make performance-test
-   ```
-
-4. **Submit pull request:**
-   - Clear description
-   - Link to relevant issues
-   - Include test results
-
-#### Review Checklist
-
-- [ ] Code follows style guidelines
-- [ ] All tests pass
-- [ ] No memory leaks detected
-- [ ] Performance impact assessed
-- [ ] Documentation updated
-- [ ] Examples provided
-- [ ] Error handling comprehensive
-- [ ] Security implications considered
+- Python 3.10 to 3.13: build the wheel, install it, then run `pytest`,
+  `memory_leak_test.py` and `benchmark.py` against the installed wheel.
+  Steps use `uv run --no-sync`; a plain `uv run` would reinstall the editable
+  project over the wheel.
+- Valgrind job (nightly, manual, or a PR title containing `[valgrind]`): the
+  commands above.
 
 ## Troubleshooting
 
-### Build Issues
-
-**Common solutions:**
-```bash
-# Clean and rebuild
-make clean
-make build
-
-# Update dependencies
-uv sync --dev
-
-# Check submodules
-git submodule status
-git submodule update --init --recursive
-```
-
-### Runtime Issues
-
-**Check Python path:**
-```python
-import sys
-print(sys.path)  # Ensure src/ is included
-```
-
-**Verify build artifacts:**
-```bash
-ls src/pymui/pymui.*.so  # Should exist after build
-```
-
-**Check SDL dependencies:**
-```bash
-# Ubuntu/Debian
-sudo apt-get install libsdl2-dev
-
-# macOS
-brew install sdl2
-
-# Windows
-# Install SDL2 development libraries
-```
-
-### Performance Issues
-
-**Profile the code:**
-```bash
-python -m cProfile scripts/benchmark.py
-```
-
-**Check memory usage:**
-```bash
-python scripts/memory_leak_test.py --verbose
-```
-
-**Use smaller test cases:**
-```python
-# Reduce iterations for debugging
-result = ctx.some_operation(iterations=10)  # Instead of 1000
-```
-
-This development guide provides the foundation for contributing to PyMUI while maintaining code quality, performance, and safety standards.
+| Symptom | Cause |
+|-|-|
+| `No module named 'pymui.pymui'` | extension not built; run `make build` |
+| Change to `.pyx` has no effect | editable install does not rebuild; run `make build` |
+| `Fatal error: ... assertion ... failed` from microui | a guard is missing; report it with the call that triggered it |
+| `DuplicateIDError` | two widgets share a label or key in one scope; pass `key=` or use `ctx.id_scope()` |
+| `RuntimeError: must be called inside a window or panel` | widget or draw call outside `ctx.window(...)` |

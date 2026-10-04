@@ -7,12 +7,7 @@ ensuring that begin_window() and end_window() are called automatically
 when using the 'with' statement for window management.
 """
 
-import sys
-from pathlib import Path
 
-# Add src to path for imports
-ROOTDIR = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(ROOTDIR))
 
 import pytest
 import pymui
@@ -169,9 +164,9 @@ class TestWindowContextManagerIntegration:
                 with ctx.window("Error Test", 0, 0, 100, 100) as window:
                     assert False, "Intentional assertion error"
 
-            # Test with value error
+            # Test with value error (a window may be begun once per frame)
             with pytest.raises(ValueError):
-                with ctx.window("Error Test", 0, 0, 100, 100) as window:
+                with ctx.window("Error Test 2", 0, 0, 100, 100) as window:
                     raise ValueError("Intentional value error")
 
     def test_window_context_manager_invalid_parameters(self):

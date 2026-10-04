@@ -6,12 +6,7 @@ This module focuses on property-based testing that avoids known issues
 while still providing comprehensive edge case coverage.
 """
 
-import sys
-from pathlib import Path
 
-# Add src to path for imports
-ROOTDIR = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(ROOTDIR))
 
 try:
     from hypothesis import given, strategies as st, assume, settings
@@ -24,6 +19,17 @@ try:
     from pymui import pymui
 except ImportError:
     import pymui
+
+
+def begin_in_window(ctx):
+    """Start a frame with one window open; widgets need a window's layout."""
+    ctx.begin()
+    assert ctx.begin_window("Property test", pymui.Rect(0, 0, 400, 300))
+
+
+def end_in_window(ctx):
+    ctx.end_window()
+    ctx.end()
 
 
 class TestBasicDataStructures:
@@ -250,7 +256,7 @@ class TestSliderBoundaries:
         if low > high:
             low, high = high, low
 
-        self.ctx.begin()
+        begin_in_window(self.ctx)
         try:
             result, new_value = self.ctx.slider(value, low, high)
 
@@ -265,12 +271,12 @@ class TestSliderBoundaries:
             # Acceptable for edge cases
             pass
         finally:
-            self.ctx.end()
+            end_in_window(self.ctx)
 
     @given(equal_bounds=floats(min_value=0.0, max_value=100.0, allow_nan=False, allow_infinity=False))
     def test_slider_equal_bounds(self, equal_bounds):
         """Slider should handle equal min/max bounds."""
-        self.ctx.begin()
+        begin_in_window(self.ctx)
         try:
             result, new_value = self.ctx.slider(equal_bounds, equal_bounds, equal_bounds)
 
@@ -280,7 +286,7 @@ class TestSliderBoundaries:
         except (ValueError, OverflowError):
             pass
         finally:
-            self.ctx.end()
+            end_in_window(self.ctx)
 
 
 # Custom test for edge cases that were problematic
@@ -290,13 +296,13 @@ class TestEdgeCaseRegression:
     def test_empty_string_handling(self):
         """Empty strings should be handled safely."""
         ctx = pymui.Context()
-        ctx.begin()
+        begin_in_window(ctx)
 
         # These should not crash
         ctx.text("")
-        ctx.label("_")  # Use non-empty label to avoid ValueError
+        ctx.label("")
 
-        ctx.end()
+        end_in_window(ctx)
 
     def test_minimal_window(self):
         """Minimal window should work."""

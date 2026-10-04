@@ -5,7 +5,7 @@ This version doesn't require SDL2 and just prints UI commands for testing
 """
 
 import sys
-from pymui import Context, Rect, Color, Vec2, Option, Result, Mouse, Key, ColorIndex
+from pymui import Context, Rect, Color, Option, Result, ColorIndex
 
 
 class MockRenderer:
@@ -206,8 +206,7 @@ class Demo:
             submitted = False
             self.ctx.layout_width(-70)
             
-            # Note: textbox handling is simplified here
-            result = self.ctx.textbox(self.input_buf, 128)
+            result, self.input_buf = self.ctx.textbox(self.input_buf, 128)
             if result & Result.SUBMIT:
                 submitted = True
             

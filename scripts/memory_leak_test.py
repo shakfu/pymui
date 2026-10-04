@@ -13,14 +13,9 @@ Usage:
 
 import sys
 import gc
-import time
 import argparse
 import tracemalloc
-from pathlib import Path
 
-# Add src to path for imports
-ROOTDIR = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(ROOTDIR))
 
 try:
     import psutil
@@ -38,7 +33,8 @@ except ImportError:
 class MemoryLeakDetector:
     """Detects memory leaks in pymui operations."""
 
-    def __init__(self, verbose=False):
+    def __init__(self, verbose=False, threshold_mb=5.0):
+        self.threshold_mb = threshold_mb
         self.verbose = verbose
         self.process = psutil.Process() if psutil else None
         self.baseline_memory = None
@@ -66,7 +62,9 @@ class MemoryLeakDetector:
             if self.process:
                 print(f"Baseline RSS memory: {self.baseline_memory / 1024 / 1024:.2f} MB")
 
-    def check_for_leaks(self, test_name, threshold_mb=50):
+    def check_for_leaks(self, test_name, threshold_mb=None):
+        if threshold_mb is None:
+            threshold_mb = self.threshold_mb
         """Check for memory leaks and return True if leaks detected."""
         # Force multiple garbage collection cycles
         for _ in range(3):
@@ -183,32 +181,15 @@ class MemoryLeakDetector:
 
         for i in range(iterations):
             ctx = pymui.Context()
-
-            try:
-                ctx.begin()
-
-                # Perform various UI operations
-                ctx.text(f"Text {i}")
-
-                if ctx.begin_window(f"Window {i}", pymui.Rect(10, 10, 200, 150)):
-                    ctx.label(f"Label {i}")
-                    ctx.button(f"Button {i}")
-                    _, value = ctx.slider(float(i % 100), 0.0, 100.0)
-                    _, state = ctx.checkbox(f"Check {i}", i % 2 == 0)
-                    ctx.end_window()
-
-                ctx.end()
-
-            except Exception as e:
-                if self.verbose:
-                    print(f"  Warning: UI operation failed: {e}")
-                # Ensure proper cleanup even on error
-                try:
-                    ctx.end()
-                except:
-                    pass
-            finally:
-                del ctx
+            with ctx:
+                with ctx.window(f"Window {i}", 10, 10, 200, 150) as win:
+                    if win.is_open:
+                        ctx.text(f"Text {i}")
+                        ctx.label(f"Label {i}")
+                        ctx.button(f"Button {i}")
+                        _, value = ctx.slider(float(i % 100), 0.0, 100.0)
+                        _, state = ctx.checkbox(f"Check {i}", i % 2 == 0)
+            del ctx
 
             if i % 10 == 0 and self.verbose:
                 print(f"  Completed {i} UI cycles...")
@@ -224,29 +205,17 @@ class MemoryLeakDetector:
         ctx = pymui.Context()
 
         for i in range(iterations):
-            try:
-                ctx.begin()
+            with ctx:
+                with ctx.window("Strings", 10, 10, 200, 150):
+                    # Test various string operations
+                    test_string = f"Test string {i} with unicode: αβγ"
+                    ctx.text(test_string)
 
-                # Test various string operations
-                test_string = f"Test string {i} with unicode: αβγ"
-                ctx.text(test_string)
-
-                # Test textbox with various string lengths
-                tb = pymui.Textbox(128)
-                tb.text = test_string
-                result = tb.text
-                del tb
-
-                ctx.end()
-
-            except Exception as e:
-                if self.verbose:
-                    print(f"  Warning: String operation failed: {e}")
-                # Ensure proper cleanup even on error
-                try:
-                    ctx.end()
-                except:
-                    pass
+                    # Test textbox with various string lengths
+                    tb = pymui.Textbox(128)
+                    tb.text = test_string
+                    result = tb.text
+                    del tb
 
             if i % 500 == 0 and self.verbose:
                 print(f"  Completed {i} string operations...")
@@ -270,7 +239,7 @@ def main():
     print("PyMUI Memory Leak Detection")
     print("=" * 40)
 
-    detector = MemoryLeakDetector(verbose=args.verbose)
+    detector = MemoryLeakDetector(verbose=args.verbose, threshold_mb=args.threshold)
     detector.start_monitoring()
 
     # Run tests with custom iterations if specified

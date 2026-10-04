@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#building)
+[![CI](https://github.com/shakfu/pymui/actions/workflows/memory-leak-detection.yml/badge.svg)](https://github.com/shakfu/pymui/actions/workflows/memory-leak-detection.yml)
 
 PyMUI provides Python bindings for [microui](https://github.com/rxi/microui), a tiny (~1100 SLOC) portable immediate-mode UI library written in ANSI C. This wrapper allows you to create lightweight, responsive user interfaces in Python while maintaining the performance and simplicity of the original C library.
 
@@ -22,23 +22,44 @@ repo to develop it independently and possibly track other active forks which [ma
 - **Flexible Layout** - Dynamic row-based layout system
 - **Customizable** - Full control over styling and rendering
 - **Memory Safe** - Comprehensive bounds checking and error handling
-- **Easy Integration** - Works with any rendering backend (SDL2, OpenGL, etc.)
+- **Easy Integration** - Bundled SDL2/OpenGL app loop, or feed draw commands to your own renderer
+- **Unicode Text** - Load any TrueType/OpenType font with `pymui.load_font()`
+
+## Upgrading from 0.2
+
+0.3.0 changes behavior that 0.2 code may rely on. Full list in the
+[CHANGELOG](CHANGELOG.md).
+
+- The PyPI distribution is `microui-py` (`pip install microui-py`); `import pymui` is unchanged.
+- `textbox(text, bufsz)` returns `(result, text)`; it was a stub returning `0`.
+- `draw_text(text, pos, color)` lost its unused `font` argument.
+- Two widgets with the same ID in one frame raise `DuplicateIDError`. Repeated
+  labels need `key=` or `ctx.id_scope()`.
+- Misuse that used to crash the interpreter raises `RuntimeError` or
+  `ValueError`; see [Errors Instead of Aborts](#errors-instead-of-aborts).
+- `Color` channels outside 0..255 raise instead of wrapping.
 
 ## Quick Start
 
 ### Installation
 
+The distribution is named `microui-py`; the import name is `pymui`.
+
 ```bash
-# Clone the repository
-git clone https://github.com/your-repo/pymui.git
+pip install microui-py     # builds from source: needs SDL2 headers and a C compiler
+```
+
+```python
+import pymui
+```
+
+From a clone, for development:
+
+```bash
+git clone https://github.com/shakfu/pymui.git
 cd pymui
-
-# Install with uv (recommended)
 uv sync --dev
-uv build
-
-# Or with pip
-pip install .
+make build                 # editable build of the extension
 ```
 
 ### Basic Usage
@@ -252,56 +273,48 @@ def update_ui():
 
 ## Complete Example: Todo App
 
-```python
-#!/usr/bin/env python3
-import pymui
-import sdl2
+`pymui.app.App` owns the SDL window, event translation, and rendering.
+Override `frame(ctx)`; it runs between `ctx.begin()` and `ctx.end()`.
 
-class TodoApp:
+```python
+import pymui
+from pymui.app import App
+
+class TodoApp(App):
     def __init__(self):
+        super().__init__("Todo", 640, 480)
         self.todos = ["Learn PyMUI", "Build an app"]
         self.new_todo = ""
-        self.ctx = pymui.Context()
 
-    def add_todo(self):
-        if self.new_todo.strip():
-            self.todos.append(self.new_todo.strip())
-            self.new_todo = ""
+    def frame(self, ctx):
+        with ctx.window("Todo App", 50, 50, 400, 300) as window:
+            if not window.is_open:
+                return
+            ctx.layout_row([-1], 25)
+            ctx.label("My Todo List")
 
-    def remove_todo(self, index):
-        if 0 <= index < len(self.todos):
-            del self.todos[index]
+            for i, todo in enumerate(list(self.todos)):
+                ctx.layout_row([-50, -1], 25)
+                ctx.label(todo)
+                with ctx.id_scope(i):  # "Delete" repeats; scope its ID
+                    if ctx.button("Delete"):
+                        self.todos.remove(todo)
 
-    def update(self):
-        with self.ctx:  # Frame context manager
-            with self.ctx.window("Todo App", 50, 50, 400, 300) as window:
-                if window.is_open:
-                    # Header
-                    self.ctx.layout_row([-1], 25)
-                    self.ctx.label("My Todo List")
+            ctx.layout_row([-80, -1], 25)
+            result, self.new_todo = ctx.textbox(self.new_todo, 128, key="new")
+            if (ctx.button("Add") or result & pymui.Result.SUBMIT) and self.new_todo.strip():
+                self.todos.append(self.new_todo.strip())
+                self.new_todo = ""
 
-                    # Todo list
-                    for i, todo in enumerate(self.todos):
-                        self.ctx.layout_row([-50, -1], 25)
-                        self.ctx.label(todo)
-
-                        self.ctx.push_id(f"del_{i}")
-                        if self.ctx.button("Delete"):
-                            self.remove_todo(i)
-                        self.ctx.pop_id()
-
-                    # Add new todo
-                    self.ctx.layout_row([-80, -1], 25)
-                    result, self.new_todo = self.ctx.textbox(self.new_todo, 128)
-
-                    if self.ctx.button("Add") or (result & pymui.Result.SUBMIT):
-                        self.add_todo()
-
-# Run the app (with SDL2 renderer)
 if __name__ == "__main__":
-    app = TodoApp()
-    # ... SDL2 setup and main loop ...
+    TodoApp().run()
 ```
+
+`App.run()` blocks until the window closes or `app.quit()` is called. The
+renderer requests vsync; `App(max_fps=120)` (the default) caps the loop where
+the driver ignores it. Pass `max_fps=None` to disable the cap. For a
+custom loop, call `app.step(frame)` per iteration, or use `pymui.render(ctx, bg)`
+with `renderer_init_window()` directly.
 
 ## Available Widgets
 
@@ -326,28 +339,63 @@ result, value = ctx.slider(current_value, min_val, max_val)
 result, text = ctx.textbox(current_text, buffer_size)
 ```
 
+### Widget IDs
+
+microui tracks hover and focus by widget ID. Buttons, checkboxes, headers and
+tree nodes derive the ID from their label. Sliders, number fields and textboxes
+have no label; their default ID comes from the calling line plus a count of
+earlier calls from that line in the same scope. Widgets shown conditionally
+elsewhere therefore do not change it.
+
+Two widgets with the same ID in one frame would share hover, focus and clicks,
+so pymui raises `DuplicateIDError`. Typical causes are repeated labels and
+widgets inside a reusable helper function. Disambiguate with `key=` or a scope:
+
+```python
+_, volume = ctx.slider(volume, 0, 100, key="volume")
+_, on = ctx.checkbox("Enabled", on, key=("channel", i))
+
+with ctx.id_scope(row_index):   # scope every ID inside the block
+    if ctx.button("Delete"):
+        ...
+```
+
 ### Layout Controls
 
 ```python
 # Windows
-if ctx.begin_window("Window Title", pymui.Rect(x, y, w, h)):
-    # Window content here
-    ctx.end_window()
+with ctx.window("Window Title", x, y, w, h) as win:
+    if win.is_open:
+        ...
 
 # Tree nodes (collapsible sections)
-if ctx.begin_treenode("Section"):
-    # Collapsible content
-    ctx.end_treenode()
+with ctx.treenode("Section") as expanded:
+    if expanded:
+        ...
 
-# Headers
+# Headers (no end call)
 if ctx.header("Section Header"):
-    # Header content
+    ...
 
 # Panels (scrollable areas)
-ctx.begin_panel("Panel Name")
-# Panel content
-ctx.end_panel()
+with ctx.panel("Panel Name") as panel:
+    ...
+
+# Popups
+if ctx.button("Menu"):
+    ctx.open_popup("menu")
+with ctx.popup("menu") as is_open:
+    if is_open:
+        ...
 ```
+
+Each scope calls its `end_*` function even if the body raises. The
+`begin_*`/`end_*` methods remain available; an `end_*` that does not match the
+innermost open scope raises `RuntimeError`. If an exception escapes a frame,
+`Context.__exit__` discards that frame instead of calling `end()`.
+
+Container fields read as copies. Assign a whole value to change one:
+`win.rect = pymui.Rect(...)`, `panel.scroll = pymui.Vec2(...)`.
 
 ### Layout Functions
 
@@ -360,9 +408,42 @@ ctx.layout_width(200)
 ctx.layout_height(30)
 
 # Columns
-ctx.layout_begin_column()
-# Column content
-ctx.layout_end_column()
+with ctx.column():
+    ...
+```
+
+### Errors Instead of Aborts
+
+microui checks its limits with `abort()`, which kills the interpreter. pymui
+checks first and raises:
+
+| Condition | Error |
+|-|-|
+| Widget, layout or draw call outside a window or panel | `RuntimeError` |
+| Mismatched `end_*`/`pop_*`, or `end()` with scopes open | `RuntimeError` |
+| More than 32 nested ID scopes, 32 clips, 16 layouts, 32 windows per frame | `RuntimeError` |
+| More than 48 live containers, or 48 toggled headers/tree nodes | `RuntimeError` |
+| Command buffer (256 KB per frame) full | `RuntimeError` |
+| Repeated widget ID, or a window begun twice in one frame | `DuplicateIDError` |
+| `fmt` other than one `%f`/`%e`/`%g` conversion | `ValueError` |
+| Color channel outside 0..255 | `ValueError` |
+
+Typed text beyond microui's 31-byte per-frame buffer is delivered over the
+following frames.
+
+### Custom Widgets
+
+```python
+def toggle(ctx, name, on):
+    wid = ctx.get_id(name)
+    r = ctx.layout_next()
+    ctx.update_control(wid, r)
+    if ctx.mouse_pressed & pymui.Mouse.LEFT and ctx.focus == wid:
+        on = not on
+    ctx.draw_control_frame(wid, r, pymui.ColorIndex.BUTTON)
+    ctx.draw_control_text("ON" if on else "OFF", r, pymui.ColorIndex.TEXT,
+                          pymui.Option.ALIGNCENTER)
+    return on
 ```
 
 ## Data Types
@@ -395,8 +476,8 @@ textbox = pymui.Textbox(buffer_size=128)
 textbox.text = "Initial text"
 current_text = textbox.text
 
-# In UI context
-result, new_text = ctx.textbox_ex(current_text, buffer_size=128)
+# In UI context: pass the text in, keep what comes back
+result, current_text = ctx.textbox(current_text, 128, key="name")
 if result & pymui.Result.SUBMIT:
     print(f"User submitted: {new_text}")
 ```
@@ -431,15 +512,14 @@ colors = [
 
 - Python 3.10 or higher
 - CMake 3.28+
-- C compiler (GCC, Clang, or MSVC)
-- SDL2 development libraries (for demos)
+- C11 compiler (GCC or Clang; Windows is untested)
+- SDL2 development libraries
 - OpenGL development libraries (Linux: `libgl-dev`, macOS: included)
 
 ### Building from Source
 
 ```bash
-# Clone with submodules
-git clone --recursive https://github.com/your-repo/pymui.git
+git clone https://github.com/shakfu/pymui.git
 cd pymui
 
 # Install dependencies
@@ -461,14 +541,8 @@ make demo
 # Build
 make build
 
-# Run tests (safe subset)
+# Run all tests
 make test
-
-# Run all tests (including potentially unstable ones)
-make test-all
-
-# Run only core safe tests
-make test-safe
 
 # Run memory leak detection
 make memory-test
@@ -486,230 +560,108 @@ make clean
 pymui/
 ├── src/pymui/          # Main Python package
 │   ├── pymui.pyx      # Cython wrapper
+│   ├── app.py         # SDL window and event loop
 │   └── __init__.py    # Package init
-├── microui/           # Upstream C library (submodule)
+├── microui/           # Vendored microui, SDL/OpenGL renderer, stb_truetype
 ├── tests/            # Test suite
-├── scripts/          # Development tools
-├── doc/              # Documentation
-├── .github/          # CI/CD workflows
-└── examples/         # Usage examples
+├── examples/         # showcase.py, demo.py, context-manager demos
+├── scripts/          # Leak, valgrind and benchmark tools
+├── doc/              # Architecture and development guides
+└── .github/          # CI workflow
 ```
+
+## Examples
+
+| File | Run | Shows |
+|-|-|-|
+| `examples/showcase.py` | `make showcase` | Every feature: widgets, stable IDs, scopes, custom widgets, layout, live guard errors, style editing, TrueType fonts |
+| `examples/demo.py` | `make demo` | Port of microui's C demo |
+| `examples/context_manager_demo.py` | `uv run python examples/context_manager_demo.py` | Frame context manager, printed to the console |
+| `examples/window_context_demo.py` | `uv run python examples/window_context_demo.py` | Window context manager, printed to the console |
+
+`tests/test_examples.py` runs the first two headless, so they stay in step with the API.
+
+## Fonts and Unicode
+
+The bundled bitmap font covers ASCII; other characters draw as a box. Load a
+TrueType or OpenType font for everything else:
+
+```python
+pymui.load_font("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 15)  # path or bytes
+pymui.reset_font()                                                       # back to the bitmap font
+```
+
+The font is global: it applies to text measurement in every `Context` (and so
+to layout) and to rendering. Characters missing from the font draw as the
+font's own missing-glyph box. Glyphs are rasterized on first use into a
+512x512 texture shared with the icons.
+
+Only load trusted font files. The renderer uses
+[stb_truetype](https://github.com/nothings/stb), which does not validate font
+tables; pymui rejects files whose table directory points past the end of the
+data (truncated files) but cannot make a crafted file safe.
+
+## Custom Renderers
+
+After `ctx.end()`, the frame is a list of commands. `pymui.render(ctx, bg)`
+draws them with the bundled renderer; to draw them elsewhere, iterate:
+
+```python
+def draw_frame(ctx, backend):
+    ctx.reset_command_iterator()
+    while (cmd := ctx.next_command()) is not None:
+        if cmd.type == pymui.Command.RECT:
+            backend.draw_rect(cmd.rect, cmd.color)
+        elif cmd.type == pymui.Command.TEXT:
+            backend.draw_text(cmd.text, cmd.pos, cmd.color)
+        elif cmd.type == pymui.Command.ICON:
+            backend.draw_icon(cmd.icon_id, cmd.rect, cmd.color)
+        elif cmd.type == pymui.Command.CLIP:
+            backend.set_clip(cmd.rect)
+```
+
+Layout measures text with the current pymui font, so a custom renderer should
+draw text with the same font and size.
 
 ## Testing
 
-PyMUI includes a comprehensive test suite:
-
 ```bash
-# Core functionality tests
-uv run pytest tests/test_pymui.py
-
-# Property-based testing (edge cases)
-uv run pytest tests/test_property_minimal.py
-
-# Memory safety tests
-uv run pytest tests/test_memory_safety.py
-
-# Performance benchmarks
-python scripts/benchmark.py
-
-# Memory leak detection
-python scripts/memory_leak_test.py
+make test           # all tests, headless
+make memory-test    # RSS and tracemalloc growth
 ```
 
-## Performance
-
-PyMUI is designed for high performance:
-
-- **Zero-copy operations** where possible
-- **Minimal Python overhead** through Cython
-- **Memory-efficient** - no retained widget objects
-- **Fast layout calculations** - immediate-mode processing
-
-### Benchmarks
-
-Typical performance on modern hardware:
-
-- Context creation: ~0.1ms
-- Basic widgets (10 buttons): ~0.05ms
-- Complex UI (50 widgets): ~0.2ms
-- Memory usage: <1MB for most applications
-
-## Integration Examples
-
-### With SDL2
-
-```python
-import sdl2
-import pymui
-
-def main():
-    # SDL2 setup
-    sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO)
-    window = sdl2.SDL_CreateWindow(
-        b"PyMUI Demo",
-        sdl2.SDL_WINDOWPOS_CENTERED,
-        sdl2.SDL_WINDOWPOS_CENTERED,
-        800, 600,
-        sdl2.SDL_WINDOW_SHOWN
-    )
-
-    ctx = pymui.Context()
-
-    running = True
-    while running:
-        # Handle events
-        event = sdl2.SDL_Event()
-        while sdl2.SDL_PollEvent(event):
-            if event.type == sdl2.SDL_QUIT:
-                running = False
-            # Pass events to PyMUI context
-
-        # Update UI
-        with ctx:  # Context manager handles begin/end
-            if ctx.begin_window("Demo", pymui.Rect(10, 10, 200, 150)):
-                if ctx.button("Quit"):
-                    running = False
-                ctx.end_window()
-
-        # Render (implement your renderer)
-        render_ui(ctx)
-
-    sdl2.SDL_Quit()
-
-if __name__ == "__main__":
-    main()
-```
-
-### Custom Renderer
-
-```python
-class CustomRenderer:
-    def render_frame(self, ctx):
-        """Render a complete frame"""
-        # Get render commands from context
-        commands = ctx.get_render_commands()  # hypothetical API
-
-        for cmd in commands:
-            if cmd.type == "rect":
-                self.draw_rect(cmd.rect, cmd.color)
-            elif cmd.type == "text":
-                self.draw_text(cmd.text, cmd.pos, cmd.color)
-
-    def draw_rect(self, rect, color):
-        # Implement rectangle drawing
-        pass
-
-    def draw_text(self, text, pos, color):
-        # Implement text rendering
-        pass
-```
+See [doc/development.md](doc/development.md) for valgrind, AddressSanitizer
+and benchmark instructions.
 
 ## Contributing
 
-We welcome contributions! Here's how to get started:
-
-### Setting Up Development Environment
-
-```bash
-# Fork and clone the repository
-git clone https://github.com/your-username/pymui.git
-cd pymui
-
-# Set up development environment
-uv sync --dev
-
-# Install pre-commit hooks (optional)
-pre-commit install
-```
-
-### Development Workflow
-
-1. **Create a branch** for your feature/fix
-2. **Write tests** for new functionality
-3. **Run the test suite** to ensure nothing breaks
-4. **Update documentation** if needed
-5. **Submit a pull request**
-
-### Code Style
-
-- Follow existing code patterns in the codebase
-- Use comprehensive docstrings for public APIs
-- Add type hints where appropriate
-- Write tests for new features
-- Keep changes focused and atomic
-
-### Testing Guidelines
-
-```bash
-# Run tests before submitting
-make test
-
-# For new features, add tests in appropriate files:
-# - tests/test_pymui.py (basic functionality)
-# - tests/test_memory_safety.py (memory safety)
-# - tests/test_property_minimal.py (edge cases)
-
-# Run memory leak detection for memory-related changes
-make memory-test
-
-# Run performance tests for performance-related changes
-make performance-test
-```
-
-### Architecture Guidelines
-
-- **Core API**: Keep the core API minimal and focused
-- **Memory Safety**: All new features must include proper bounds checking
-- **Performance**: Maintain the immediate-mode performance characteristics
-- **Documentation**: Update architectural docs for significant changes
+Setup, the checklist for adding wrapper methods, and test-writing notes are in
+[doc/development.md](doc/development.md). Design and the safety layer are in
+[doc/architecture.md](doc/architecture.md).
 
 ## API Reference
 
-### Context Methods
+The type stubs in [`src/pymui/pymui.pyi`](src/pymui/pymui.pyi) list every
+class, method and signature. By area:
 
-#### Window Management
-- `begin_window(title, rect, opt=0) -> int`
-- `end_window()`
-- `window(title, x, y, w, h, opt=0) -> Window` - **Context manager for automatic window management**
-- `get_current_container() -> Container`
-
-#### Window Context Manager
-- `Window.title -> str` - Window title (read-only)
-- `Window.rect -> Rect` - Window rectangle (read-only)
-- `Window.opt -> int` - Window options (read-only)
-- `Window.is_open -> bool` - Whether window is open and should be processed
-
-#### Layout
-- `layout_row(widths, height)`
-- `layout_width(width)`
-- `layout_height(height)`
-- `layout_begin_column()`
-- `layout_end_column()`
-- `layout_next() -> Rect`
-
-#### Widgets
-- `button(label, icon=0, opt=0) -> int`
-- `checkbox(label, state) -> tuple[int, int]`
-- `slider(value, low, high, step=0, fmt="%.2f", opt=0) -> tuple[int, float]`
-- `textbox_ex(buf, bufsz, opt=0) -> tuple[int, str]`
-- `label(text)`
-- `text(text)`
-
-#### Tree/Panel
-- `begin_treenode(label) -> int`
-- `end_treenode()`
-- `header(label, opt=0) -> int`
-- `begin_panel(name)`
-- `end_panel()`
-
-#### State Management
-- `push_id(id)`
-- `pop_id()`
+| Area | Names |
+|-|-|
+| Frame | `begin`, `end`, `abort_frame`, `in_frame`, `with ctx:` |
+| Containers | `window`, `popup`, `panel`, `begin_*`/`end_*`, `open_popup`, `get_current_container`, `get_container`, `bring_to_front` |
+| Widgets | `button`, `checkbox`, `slider`, `number`, `textbox`, `label`, `text`, `header`, `treenode` |
+| Layout | `layout_row`, `layout_width`, `layout_height`, `column`, `layout_set_next`, `layout_next` |
+| IDs | `id_scope`, `push_id`, `pop_id`, `get_id`, `key=` arguments |
+| Custom widgets | `update_control`, `draw_control_frame`, `draw_control_text`, `draw_rect`, `draw_box`, `draw_text`, `draw_icon`, `mouse_over` |
+| Input state | `hover`, `focus`, `mouse_pos`, `mouse_delta`, `mouse_down`, `mouse_pressed`, `key_down`, `key_pressed` |
+| Input | `input_mousemove`, `input_mousedown`, `input_mouseup`, `input_scroll`, `input_keydown`, `input_keyup`, `input_text` |
+| Rendering | `render`, `renderer_init_window`, `renderer_resize`, `renderer_shutdown`, `next_command`, `load_font`, `reset_font` |
+| App | `pymui.app.App`: `frame`, `run`, `step`, `quit`, `handle_event` |
 
 ### Result Flags
 
+Bit flags; `0` means no interaction.
+
 ```python
-pymui.Result.NONE     # No interaction
 pymui.Result.ACTIVE   # Widget is active
 pymui.Result.SUBMIT   # Widget was submitted (Enter key, etc.)
 pymui.Result.CHANGE   # Widget value changed
@@ -746,33 +698,21 @@ make build
 ls src/pymui/pymui.*.so
 ```
 
-**Segmentation Fault**: Usually caused by calling UI functions without proper context
-```python
-# Recommended: Use context manager
-with pymui.Context() as ctx:
-    # UI code here - begin/end handled automatically
-    pass
+**`RuntimeError` or `DuplicateIDError` from a widget call**: pymui checks microui's
+preconditions and raises instead of letting microui abort. See
+[Errors Instead of Aborts](#errors-instead-of-aborts).
 
-# Alternative: Manual begin/end pairs
-ctx = pymui.Context()
-ctx.begin()
-try:
-    # UI code here
-    pass
-finally:
-    ctx.end()
-```
+**`Fatal error: ... assertion ... failed` from microui**: a precondition pymui does
+not check yet. Please report it with the call that triggered it.
 
-**Performance Issues**:
-- Minimize string operations in tight loops
-- Use `push_id`/`pop_id` for unique widget identification
-- Consider caching expensive calculations outside the UI loop
+**Non-ASCII text draws as boxes**: the bundled font is ASCII-only; call
+`pymui.load_font()` (see [Fonts and Unicode](#fonts-and-unicode)).
 
 ### Getting Help
 
 - Check the [documentation](doc/)
 - Review [examples](examples/)
-- Search [issues](https://github.com/your-repo/pymui/issues)
+- Search [issues](https://github.com/shakfu/pymui/issues)
 - Read the [microui usage guide](doc/usage.md)
 
 ## License
