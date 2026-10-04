@@ -6,7 +6,7 @@ adds a Python event loop on top.
 
 ## Layers
 
-```
+```text
 application code          frame(ctx): windows, widgets, state
       |
 pymui.app.App             SDL events -> ctx.input_*; one frame per loop, max_fps cap

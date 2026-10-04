@@ -1,4 +1,5 @@
 # Usage
+
 * **[Overview](#overview)**
 * **[Getting Started](#getting-started)**
 * **[Layout System](#layout-system)**
@@ -6,8 +7,10 @@
 * **[Custom Controls](#custom-controls)**
 
 ## Overview
+
 The overall structure when using the library is as follows:
-```
+
+```text
 initialise `mu_Context`
 
 main loop:
@@ -19,7 +22,9 @@ main loop:
 ```
 
 ## Getting Started
+
 Before use a `mu_Context` should be initialised:
+
 ```c
 mu_Context *ctx = malloc(sizeof(mu_Context));
 mu_init(ctx);
@@ -27,6 +32,7 @@ mu_init(ctx);
 
 Following which the context's `text_width` and `text_height` callback functions
 should be set:
+
 ```c
 ctx->text_width = text_width;
 ctx->text_height = text_height;
@@ -38,6 +44,7 @@ if the same input event occurs in a single frame.
 
 After handling the input the `mu_begin()` function must be called before
 processing your UI:
+
 ```c
 mu_begin(ctx);
 ```
@@ -63,6 +70,7 @@ While inside a window block we can safely process controls. Controls that allow
 user interaction return a bitset of `MU_RES_...` values. Some controls — such
 as buttons — can only potentially return a single `MU_RES_...`, thus their
 return value can be treated as a boolean:
+
 ```c
 if (mu_button(ctx, "My Button")) {
   printf("'My Button' was pressed\n");
@@ -76,6 +84,7 @@ pointer. An issue arises then if you have several buttons in a window or panel
 that use the same label. The `mu_push_id()` and `mu_pop_id()` functions are
 provided for such situations, allowing you to push additional data that will be
 mixed into the unique ID:
+
 ```c
 for (int i = 0; i < 10; i++) {
   mu_push_id(ctx, &i, sizeof(i));
@@ -88,6 +97,7 @@ for (int i = 0; i < 10; i++) {
 
 When we're finished processing the UI for this frame the `mu_end()` function
 should be called:
+
 ```c
 mu_end(ctx);
 ```
@@ -95,6 +105,7 @@ mu_end(ctx);
 When we're ready to draw the UI the `mu_next_command()` can be used to iterate
 the resultant commands. The function expects a `mu_Command` pointer initialised
 to `NULL`. It is safe to iterate through the commands list any number of times:
+
 ```c
 mu_Command *cmd = NULL;
 while (mu_next_command(ctx, &cmd)) {
@@ -115,19 +126,21 @@ while (mu_next_command(ctx, &cmd)) {
 
 See the [`demo`](../demo) directory for a usage example.
 
-
 ## Layout System
+
 The layout system is primarily based around *rows* — Each row
 can contain a number of *items* or *columns* each column can itself
 contain a number of rows and so forth. A row is initialised using the
 `mu_layout_row()` function, the user should specify the number of items
 on the row, an array containing the width of each item, and the height
 of the row:
+
 ```c
 /* initialise a row of 3 items: the first item with a width
 ** of 90 and the remaining two with the width of 100 */
 mu_layout_row(ctx, 3, (int[]) { 90, 100, 100 }, 0);
 ```
+
 When a row is filled the next row is started, for example, in the above
 code 6 buttons immediately after would result in two rows. The function
 can be called again to begin a new row.
@@ -137,6 +150,7 @@ which will result in the Context's `style.size` value being used, or a
 negative value which will size the item relative to the right/bottom edge,
 thus if we wanted a row with a small button at the left, a textbox filling
 most the row and a larger button at the right, we could do the following:
+
 ```c
 mu_layout_row(ctx, 3, (int[]) { 30, -90, -1 }, 0);
 mu_button(ctx, "X");
@@ -148,6 +162,7 @@ If the `items` parameter is `0`, the `widths` parameter is ignored
 and controls will continue to be added to the row at the width last
 specified by `mu_layout_width()` or `style.size.x` if this function has
 not been called:
+
 ```c
 mu_layout_row(ctx, 0, NULL, 0);
 mu_layout_width(ctx, -90);
@@ -175,6 +190,7 @@ a screen-space Rect or a Rect which will have the container's position
 and scroll offset applied to it. You can peek the next Rect from the
 layout system by using the `mu_layout_next()` function to retrieve it,
 followed by `mu_layout_set_next()` to return it:
+
 ```c
 mu_Rect rect = mu_layout_next(ctx);
 mu_layout_set_next(ctx, rect, 0);
@@ -182,17 +198,19 @@ mu_layout_set_next(ctx, rect, 0);
 
 If you want to position controls arbitrarily inside a container the
 `relative` argument of `mu_layout_set_next()` should be true:
+
 ```c
 /* place a (40, 40) sized button at (300, 300) inside the container: */
 mu_layout_set_next(ctx, mu_rect(300, 300, 40, 40), 1);
 mu_button(ctx, "X");
 ```
+
 A Rect set with `relative` true will also effect the `content_size`
 of the container, causing it to effect the scrollbars if it exceeds the
 width or height of the container's body.
 
-
 ## Style Customisation
+
 The library provides styling support via the `mu_Style` struct and, if you
 want greater control over the look, the `draw_frame()` callback function.
 
@@ -209,8 +227,8 @@ to be drawn, by default this function draws a rectangle using the color
 of the `colorid` argument, with a one-pixel border around it using the
 `MU_COLOR_BORDER` color.
 
-
 ## Custom Controls
+
 The library exposes the functions used by built-in controls to allow the
 user to make custom controls. A control should take a `mu_Context*` value
 as its first argument and return a `MU_RES_...` value. Your control's
@@ -227,6 +245,7 @@ to allow for text input.
 
 A control that acts as a button which displays an integer and, when
 clicked increments that integer, could be implemented as such:
+
 ```c
 int incrementer(mu_Context *ctx, int *value) {
   mu_Id     id = mu_get_id(ctx, &value, sizeof(value));

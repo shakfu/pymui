@@ -1,42 +1,47 @@
-# PyMUI
+# microui-py
 
 **A Python wrapper for the microui immediate-mode UI library**
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![CI](https://github.com/shakfu/pymui/actions/workflows/memory-leak-detection.yml/badge.svg)](https://github.com/shakfu/pymui/actions/workflows/memory-leak-detection.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![CI](https://github.com/shakfu/pymui/actions/workflows/memory-leak-detection.yml/badge.svg)](https://github.com/shakfu/pymui/actions/workflows/memory-leak-detection.yml)
 
-PyMUI provides Python bindings for [microui](https://github.com/rxi/microui), a tiny (~1100 SLOC) portable immediate-mode UI library written in ANSI C. This wrapper allows you to create lightweight, responsive user interfaces in Python while maintaining the performance and simplicity of the original C library.
+microui-py provides Python bindings for [microui](https://github.com/rxi/microui), a tiny (~1100 SLOC) portable immediate-mode UI library written in ANSI C. This wrapper allows you to create lightweight, responsive user interfaces in Python while maintaining the performance and simplicity of the original C library.
 
-Note: Prior development of `pymui` was done as a fork of microui in the [pymui-pr](https://github.com/shakfu/pymui-pr) repo, 
-originally with the intent to contribute the python wrapper back into the original [microui](https://github.com/rxi/microui) 
-project. However, it is now clear that the author of `microui` is not accepting PRs and wants
-to keep the project miminal. While this is fair enough, it was decided to move pymui to its own
-repo to develop it independently and possibly track other active forks which [may emerge](https://github.com/rxi/microui/issues/79).
+Note: Earlier iterations of microui-py were created with the intent to contribute the python wrapper back into the original [microui](https://github.com/rxi/microui) project. However, it is now clear that the author of `microui` is not accepting PRs and wants to keep the project miminal. While this is fair enough, it was decided to move pymui to its own repo to develop it independently and possibly track other active forks which [may emerge](https://github.com/rxi/microui/issues/79).
 
 ## Features
 
 - **Pythonic API** - Clean, intuitive Python interface
+
 - **High Performance** - Direct Cython bindings to C library
+
 - **Immediate Mode** - No retained widget objects, simple state management
+
 - **Flexible Layout** - Dynamic row-based layout system
+
 - **Customizable** - Full control over styling and rendering
+
 - **Memory Safe** - Comprehensive bounds checking and error handling
+
 - **Easy Integration** - Bundled SDL2/OpenGL app loop, or feed draw commands to your own renderer
+
 - **Unicode Text** - Load any TrueType/OpenType font with `pymui.load_font()`
+
+![screenshot](https://github.com/shakfu/microui-py/blob/main/docs/media/screenshot.png?raw=true)
 
 ## Upgrading from 0.2
 
-0.3.0 changes behavior that 0.2 code may rely on. Full list in the
-[CHANGELOG](CHANGELOG.md).
+0.3.0 changes behavior that 0.2 code may rely on. Full list in the [CHANGELOG](CHANGELOG.md).
 
 - The PyPI distribution is `microui-py` (`pip install microui-py`); `import pymui` is unchanged.
+
 - `textbox(text, bufsz)` returns `(result, text)`; it was a stub returning `0`.
+
 - `draw_text(text, pos, color)` lost its unused `font` argument.
-- Two widgets with the same ID in one frame raise `DuplicateIDError`. Repeated
-  labels need `key=` or `ctx.id_scope()`.
-- Misuse that used to crash the interpreter raises `RuntimeError` or
-  `ValueError`; see [Errors Instead of Aborts](#errors-instead-of-aborts).
+
+- Two widgets with the same ID in one frame raise `DuplicateIDError`. Repeated labels need `key=` or `ctx.id_scope()`.
+
+- Misuse that used to crash the interpreter raises `RuntimeError` or `ValueError`; see [Errors Instead of Aborts](#errors-instead-of-aborts).
+
 - `Color` channels outside 0..255 raise instead of wrapping.
 
 ## Quick Start
@@ -102,7 +107,7 @@ finally:
 
 ### Immediate Mode UI
 
-PyMUI follows the immediate-mode paradigm where UI elements are created and processed every frame:
+microui-py follows the immediate-mode paradigm where UI elements are created and processed every frame:
 
 ```python
 # No widget objects to manage - just call functions each frame
@@ -117,7 +122,7 @@ for frame in main_loop():
 
 ### Context Manager vs Manual Frame Management
 
-PyMUI supports both automatic and manual frame management:
+microui-py supports both automatic and manual frame management:
 
 ```python
 # Recommended: Context Manager (Automatic)
@@ -138,9 +143,13 @@ finally:
 ```
 
 **Benefits of Context Manager:**
+
 - **Automatic cleanup** - `end()` always called, even on exceptions
+
 - **Cleaner code** - No need to remember begin/end pairs
+
 - **Exception safety** - Proper cleanup guaranteed
+
 - **Pythonic** - Follows Python's context manager idiom
 
 ### Context Manager Best Practices
@@ -184,7 +193,7 @@ def good_manual_approach():
 
 ### Window Context Manager
 
-PyMUI provides an additional context manager for windows that automatically handles `begin_window()` and `end_window()` calls:
+microui-py provides an additional context manager for windows that automatically handles `begin_window()` and `end_window()` calls:
 
 ```python
 # Recommended: Window context manager
@@ -214,15 +223,20 @@ with pymui.Context() as ctx:
 ```
 
 **Window Context Manager Benefits:**
+
 - **Automatic cleanup** - `end_window()` always called
+
 - **Exception safety** - Cleanup on errors
+
 - **Window state access** - `window.is_open`, `window.title`, `window.rect`, `window.opt`
+
 - **Cleaner code** - No manual begin/end window pairs
+
 - **Convenient API** - `ctx.window(title, x, y, w, h, opt=0)`
 
 ### Layout System
 
-PyMUI uses a flexible row-based layout system:
+microui-py uses a flexible row-based layout system:
 
 ```python
 with pymui.Context() as ctx:
@@ -273,8 +287,7 @@ def update_ui():
 
 ## Complete Example: Todo App
 
-`pymui.app.App` owns the SDL window, event translation, and rendering.
-Override `frame(ctx)`; it runs between `ctx.begin()` and `ctx.end()`.
+`pymui.app.App` owns the SDL window, event translation, and rendering. Override `frame(ctx)`; it runs between `ctx.begin()` and `ctx.end()`.
 
 ```python
 import pymui
@@ -283,7 +296,7 @@ from pymui.app import App
 class TodoApp(App):
     def __init__(self):
         super().__init__("Todo", 640, 480)
-        self.todos = ["Learn PyMUI", "Build an app"]
+        self.todos = ["Learn microui-py", "Build an app"]
         self.new_todo = ""
 
     def frame(self, ctx):
@@ -310,11 +323,7 @@ if __name__ == "__main__":
     TodoApp().run()
 ```
 
-`App.run()` blocks until the window closes or `app.quit()` is called. The
-renderer requests vsync; `App(max_fps=120)` (the default) caps the loop where
-the driver ignores it. Pass `max_fps=None` to disable the cap. For a
-custom loop, call `app.step(frame)` per iteration, or use `pymui.render(ctx, bg)`
-with `renderer_init_window()` directly.
+`App.run()` blocks until the window closes or `app.quit()` is called. The renderer requests vsync; `App(max_fps=120)` (the default) caps the loop where the driver ignores it. Pass `max_fps=None` to disable the cap. For a custom loop, call `app.step(frame)` per iteration, or use `pymui.render(ctx, bg)` with `renderer_init_window()` directly.
 
 ## Available Widgets
 
@@ -341,15 +350,9 @@ result, text = ctx.textbox(current_text, buffer_size)
 
 ### Widget IDs
 
-microui tracks hover and focus by widget ID. Buttons, checkboxes, headers and
-tree nodes derive the ID from their label. Sliders, number fields and textboxes
-have no label; their default ID comes from the calling line plus a count of
-earlier calls from that line in the same scope. Widgets shown conditionally
-elsewhere therefore do not change it.
+microui tracks hover and focus by widget ID. Buttons, checkboxes, headers and tree nodes derive the ID from their label. Sliders, number fields and textboxes have no label; their default ID comes from the calling line plus a count of earlier calls from that line in the same scope. Widgets shown conditionally elsewhere therefore do not change it.
 
-Two widgets with the same ID in one frame would share hover, focus and clicks,
-so pymui raises `DuplicateIDError`. Typical causes are repeated labels and
-widgets inside a reusable helper function. Disambiguate with `key=` or a scope:
+Two widgets with the same ID in one frame would share hover, focus and clicks, so pymui raises `DuplicateIDError`. Typical causes are repeated labels and widgets inside a reusable helper function. Disambiguate with `key=` or a scope:
 
 ```python
 _, volume = ctx.slider(volume, 0, 100, key="volume")
@@ -389,13 +392,9 @@ with ctx.popup("menu") as is_open:
         ...
 ```
 
-Each scope calls its `end_*` function even if the body raises. The
-`begin_*`/`end_*` methods remain available; an `end_*` that does not match the
-innermost open scope raises `RuntimeError`. If an exception escapes a frame,
-`Context.__exit__` discards that frame instead of calling `end()`.
+Each scope calls its `end_*` function even if the body raises. The `begin_*`/`end_*` methods remain available; an `end_*` that does not match the innermost open scope raises `RuntimeError`. If an exception escapes a frame, `Context.__exit__` discards that frame instead of calling `end()`.
 
-Container fields read as copies. Assign a whole value to change one:
-`win.rect = pymui.Rect(...)`, `panel.scroll = pymui.Vec2(...)`.
+Container fields read as copies. Assign a whole value to change one: `win.rect = pymui.Rect(...)`, `panel.scroll = pymui.Vec2(...)`.
 
 ### Layout Functions
 
@@ -414,8 +413,7 @@ with ctx.column():
 
 ### Errors Instead of Aborts
 
-microui checks its limits with `abort()`, which kills the interpreter. pymui
-checks first and raises:
+microui checks its limits with `abort()`, which kills the interpreter. pymui checks first and raises:
 
 | Condition | Error |
 |-|-|
@@ -428,8 +426,7 @@ checks first and raises:
 | `fmt` other than one `%f`/`%e`/`%g` conversion | `ValueError` |
 | Color channel outside 0..255 | `ValueError` |
 
-Typed text beyond microui's 31-byte per-frame buffer is delivered over the
-following frames.
+Typed text beyond microui's 31-byte per-frame buffer is delivered over the following frames.
 
 ### Custom Widgets
 
@@ -484,7 +481,7 @@ if result & pymui.Result.SUBMIT:
 
 ## Styling
 
-PyMUI supports comprehensive styling through the style system:
+microui-py supports comprehensive styling through the style system:
 
 ```python
 # Get current style
@@ -511,9 +508,13 @@ colors = [
 ### Prerequisites
 
 - Python 3.10 or higher
+
 - CMake 3.28+
+
 - C11 compiler (GCC or Clang; Windows is untested)
+
 - SDL2 development libraries
+
 - OpenGL development libraries (Linux: `libgl-dev`, macOS: included)
 
 ### Building from Source
@@ -556,7 +557,7 @@ make clean
 
 ### Project Structure
 
-```
+```text
 pymui/
 ├── src/pymui/          # Main Python package
 │   ├── pymui.pyx      # Cython wrapper
@@ -583,28 +584,20 @@ pymui/
 
 ## Fonts and Unicode
 
-The bundled bitmap font covers ASCII; other characters draw as a box. Load a
-TrueType or OpenType font for everything else:
+The bundled bitmap font covers ASCII; other characters draw as a box. Load a TrueType or OpenType font for everything else:
 
 ```python
 pymui.load_font("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 15)  # path or bytes
 pymui.reset_font()                                                       # back to the bitmap font
 ```
 
-The font is global: it applies to text measurement in every `Context` (and so
-to layout) and to rendering. Characters missing from the font draw as the
-font's own missing-glyph box. Glyphs are rasterized on first use into a
-512x512 texture shared with the icons.
+The font is global: it applies to text measurement in every `Context` (and so to layout) and to rendering. Characters missing from the font draw as the font's own missing-glyph box. Glyphs are rasterized on first use into a 512x512 texture shared with the icons.
 
-Only load trusted font files. The renderer uses
-[stb_truetype](https://github.com/nothings/stb), which does not validate font
-tables; pymui rejects files whose table directory points past the end of the
-data (truncated files) but cannot make a crafted file safe.
+Only load trusted font files. The renderer uses [stb_truetype](https://github.com/nothings/stb), which does not validate font tables; pymui rejects files whose table directory points past the end of the data (truncated files) but cannot make a crafted file safe.
 
 ## Custom Renderers
 
-After `ctx.end()`, the frame is a list of commands. `pymui.render(ctx, bg)`
-draws them with the bundled renderer; to draw them elsewhere, iterate:
+After `ctx.end()`, the frame is a list of commands. `pymui.render(ctx, bg)` draws them with the bundled renderer; to draw them elsewhere, iterate:
 
 ```python
 def draw_frame(ctx, backend):
@@ -620,8 +613,7 @@ def draw_frame(ctx, backend):
             backend.set_clip(cmd.rect)
 ```
 
-Layout measures text with the current pymui font, so a custom renderer should
-draw text with the same font and size.
+Layout measures text with the current pymui font, so a custom renderer should draw text with the same font and size.
 
 ## Testing
 
@@ -630,19 +622,15 @@ make test           # all tests, headless
 make memory-test    # RSS and tracemalloc growth
 ```
 
-See [doc/development.md](doc/development.md) for valgrind, AddressSanitizer
-and benchmark instructions.
+See [doc/development.md](doc/development.md) for valgrind, AddressSanitizer and benchmark instructions.
 
 ## Contributing
 
-Setup, the checklist for adding wrapper methods, and test-writing notes are in
-[doc/development.md](doc/development.md). Design and the safety layer are in
-[doc/architecture.md](doc/architecture.md).
+Setup, the checklist for adding wrapper methods, and test-writing notes are in [doc/development.md](doc/development.md). Design and the safety layer are in [doc/architecture.md](doc/architecture.md).
 
 ## API Reference
 
-The type stubs in [`src/pymui/pymui.pyi`](src/pymui/pymui.pyi) list every
-class, method and signature. By area:
+The type stubs in [`src/pymui/pymui.pyi`](src/pymui/pymui.pyi) list every class, method and signature. By area:
 
 | Area | Names |
 |-|-|
@@ -690,6 +678,7 @@ pymui.Option.EXPANDED      # Header is expanded
 ### Common Issues
 
 **Import Error**: `ImportError: cannot import name 'pymui'`
+
 ```bash
 # Make sure you've built the project
 make build
@@ -698,35 +687,36 @@ make build
 ls src/pymui/pymui.*.so
 ```
 
-**`RuntimeError` or `DuplicateIDError` from a widget call**: pymui checks microui's
-preconditions and raises instead of letting microui abort. See
-[Errors Instead of Aborts](#errors-instead-of-aborts).
+**`RuntimeError` or `DuplicateIDError` from a widget call**: pymui checks microui's preconditions and raises instead of letting microui abort. See [Errors Instead of Aborts](#errors-instead-of-aborts).
 
-**`Fatal error: ... assertion ... failed` from microui**: a precondition pymui does
-not check yet. Please report it with the call that triggered it.
+**`Fatal error: ... assertion ... failed` from microui**: a precondition pymui does not check yet. Please report it with the call that triggered it.
 
-**Non-ASCII text draws as boxes**: the bundled font is ASCII-only; call
-`pymui.load_font()` (see [Fonts and Unicode](#fonts-and-unicode)).
+**Non-ASCII text draws as boxes**: the bundled font is ASCII-only; call `pymui.load_font()` (see [Fonts and Unicode](#fonts-and-unicode)).
 
 ### Getting Help
 
 - Check the [documentation](doc/)
+
 - Review [examples](examples/)
+
 - Search [issues](https://github.com/shakfu/pymui/issues)
+
 - Read the [microui usage guide](doc/usage.md)
 
 ## License
 
-PyMUI is released under the MIT License. See [LICENSE](LICENSE) for details.
+microui-py is released under the MIT License. See [LICENSE](LICENSE) for details.
 
 The underlying microui library is also MIT licensed.
 
 ## Acknowledgments
 
 - [rxi](https://github.com/rxi) for creating the excellent microui library
+
 - The Cython team for making Python-C integration seamless
-- Contributors and testers who helped improve PyMUI
+
+- Contributors and testers who helped improve microui-py
 
 ---
 
-**Happy UI building with PyMUI! 🎨🐍**
+**Happy UI building with microui-py! 🎨🐍**
