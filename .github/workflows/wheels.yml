@@ -4,7 +4,12 @@ name: Wheels
 # Manual runs build only, unless the inputs request an upload.
 on:
   push:
-    tags: ["v*"]
+    tags:
+      # We tag releases as bare semver (e.g. `0.1.2`). The `v`-prefixed
+      # form is also accepted in case the project ever flips convention
+      # or someone uses it manually.
+      - '[0-9]+.[0-9]+.[0-9]+*'
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
   workflow_dispatch:
     inputs:
       pypi:
@@ -15,6 +20,10 @@ on:
         description: Attach to a GitHub release (run from a tag)
         type: boolean
         default: false
+
+# Empty on a tagless dispatch: builds are versioned `dev-<sha7>` and publish is skipped.
+env:
+  TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
 
 jobs:
   build_wheels:
@@ -88,6 +97,24 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+
+      - name: extract release notes from CHANGELOG
+        # Pulls the section under `## [<version>]` out of CHANGELOG.md
+        # into release-notes.md, prefixed with a "Changes since the last
+        # Release" header. The script falls back to `## [Unreleased]` if
+        # the version-named section is missing or empty. Exit 0 = found
+        # (release body comes from release-notes.md); exit 2 = nothing
+        # to use (release body falls back to GitHub's auto-generated
+        # commit-list notes).
+        run: |
+          VERSION="${TAG#v}"
+          if python3 scripts/release_notes.py "${VERSION}"; then
+            echo "FOUND=1" >> "$GITHUB_ENV"
+            echo "--- release-notes.md ---"
+            cat release-notes.md
+          else
+            echo "FOUND=0" >> "$GITHUB_ENV"
+          fi
 
       - uses: softprops/action-gh-release@v3
         with:
