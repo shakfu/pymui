@@ -32,7 +32,8 @@ microui/sdl/renderer.c    one SDL window, OpenGL 1.x quads, bitmap or TrueType t
 ## Frame lifecycle
 
 1. Input: `ctx.input_mousemove/mousedown/mouseup/scroll/keydown/keyup/text`.
-   `App.handle_event` maps SDL events to these.
+   `poll_event()` translates SDL events into `Event` objects;
+   `App.handle_event` maps those to these calls.
 2. `ctx.begin()`, or `with ctx:`.
 3. Widgets. Each call lays out, handles input, and appends draw commands.
 4. `ctx.end()`. microui sorts windows by z-index and links their command
@@ -131,7 +132,7 @@ the data.
 CMake builds `microui` and `microui_sdl` as static libraries; Cython generates
 `pymui.c`, which links both into the `pymui.pymui` extension. scikit-build-core
 drives CMake for `uv build` and `uv pip install -e .` (`make build`). Runtime
-dependencies: SDL2 and OpenGL (linked), `pysdl2` (for `pymui.app`).
+dependencies: SDL2 and OpenGL, linked; wheels link SDL2 statically.
 
 ## Tests
 

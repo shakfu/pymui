@@ -31,6 +31,9 @@ from .pymui import (
     Option,
     Mouse,
     Key,
+    EventType,
+    Event,
+    poll_event,
     # Renderer functions
     render,
     load_font,
@@ -83,6 +86,9 @@ __all__ = [
     "Option",
     "Mouse",
     "Key",
+    "EventType",
+    "Event",
+    "poll_event",
     # Renderer functions
     "render",
     "load_font",

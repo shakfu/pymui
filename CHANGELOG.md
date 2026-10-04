@@ -4,6 +4,10 @@
 
 ### Added
 
+- `.github/workflows/wheels.yml` builds abi3 wheels for CPython 3.12+ with cibuildwheel: Linux x86_64/aarch64 (manylinux), macOS x86_64/arm64, Windows AMD64. A `v*` tag push publishes to PyPI (trusted publishing, environment `pypi`) and a GitHub release; a manual run uploads only when its inputs say so. `scripts/build_sdl2.sh` builds SDL2 2.32.10 from a hash-checked tarball, linked statically so wheels need no system SDL2. Python 3.10 and 3.11 install from the sdist.
+
+- `pymui.poll_event()` returns the next window event as a `pymui.Event`, or `None`. `EventType` names the translated kinds; other SDL events are dropped.
+
 - `App(max_fps=120)` caps the frame rate after each render. Drivers and compositors may ignore the vsync request; with vsync forced off, the showcase ran at 2,099 fps using 47% of a core, and at 117 fps and 5% with the cap. The default is 120 rather than 60 so a working vsync on high-refresh displays is not halved. `max_fps=None` disables it. A late frame restarts the schedule instead of triggering catch-up frames.
 
 - `pymui.load_font(path_or_bytes, size)`, `reset_font()` and `font_loaded()`: render and measure text with any TrueType/OpenType font, via vendored stb_truetype v1.26. The bundled bitmap font covers ASCII only and draws other characters as a box. Glyphs rasterize on first use into the renderer's texture, now 512x512 and shared with the icons. stb_truetype was chosen over SDL2_ttf to avoid a new system library dependency. It does not validate font tables, so only trusted files should be loaded; pymui rejects data whose table directory points past its end.
@@ -23,6 +27,10 @@
 - `DuplicateIDError`, raised when two widgets in one frame resolve to the same ID, or a window is begun twice. Shared IDs make widgets share hover, focus and clicks. A repeated window overwrites its head jump and silently drops the first instance's content.
 
 ### Changed
+
+- `pymui.app` no longer depends on pysdl2, and `App.handle_event` takes a `pymui.Event` instead of an `sdl2.SDL_Event`. pysdl2 loads its own SDL2 through ctypes. With SDL2 inside the wheel, the window would live in one SDL instance while `App` polled events from the other, so no input arrived. `renderer_init_window()` now initializes SDL video, and `renderer_shutdown()` calls `SDL_Quit()`.
+
+- CMake locates SDL2 and OpenGL with `find_package` (SDL2's CMake config) instead of the Homebrew prefix and `-lSDL2`. GCC/Clang-only flags are skipped under MSVC.
 
 - The distribution is renamed from `pymui` to `microui-py`, because `pymui` on PyPI belongs to an unrelated project. The import name stays `pymui`; `pyproject.toml` sets `wheel.packages` because scikit-build-core would otherwise look for `src/microui_py`.
 

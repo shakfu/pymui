@@ -14,12 +14,12 @@ add_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/microui.c
 )
 
+set_target_properties(microui PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 target_compile_options(
     microui
     PUBLIC
-    -Wall
-    -pedantic
-    -fPIC
+    $<$<NOT:$<C_COMPILER_ID:MSVC>>:-Wall -pedantic>
 )
 
 target_include_directories(

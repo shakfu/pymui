@@ -301,6 +301,45 @@ class Key:
     BACKSPACE: int
     RETURN: int
 
+class EventType:
+    QUIT: int
+    MOUSEMOTION: int
+    MOUSEDOWN: int
+    MOUSEUP: int
+    MOUSEWHEEL: int
+    KEYDOWN: int
+    KEYUP: int
+    TEXT: int
+    RESIZE: int
+
+class Event:
+    @property
+    def type(self) -> int: ...
+    @property
+    def x(self) -> int: ...
+    @property
+    def y(self) -> int: ...
+    @property
+    def button(self) -> int: ...
+    @property
+    def key(self) -> int: ...
+    @property
+    def keycode(self) -> int: ...
+    @property
+    def text(self) -> str: ...
+    def __init__(
+        self,
+        type: int,
+        x: int = 0,
+        y: int = 0,
+        button: int = 0,
+        key: int = 0,
+        keycode: int = 0,
+        text: str = "",
+    ) -> None: ...
+
+def poll_event() -> Event | None: ...
+
 # Renderer functions
 def render(ctx: Context, bg: Color | None = None) -> None: ...
 def renderer_init() -> None: ...

@@ -5,10 +5,7 @@ description = "A cython wrapper for microui"
 readme = "README.md"
 authors = [{ name = "Shakeeb Alireza", email = "shakfu@me.org" }]
 requires-python = ">=3.10"
-dependencies = [
-    "pysdl2>=0.9.17",
-    #"pysdl2-dll>=2.32.0",
-]
+dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/shakfu/pymui"
@@ -19,10 +16,12 @@ Changelog = "https://github.com/shakfu/pymui/blob/main/CHANGELOG.md"
 ninja.make-fallback = false
 # The import package is `pymui`; auto-discovery would look for src/microui_py.
 wheel.packages = ["src/pymui"]
+# abi3 wheel on 3.12+; older interpreters build a version-specific wheel.
+wheel.py-api = "cp312"
 
 [build-system]
 build-backend = "scikit_build_core.build"
-requires = ["scikit-build-core", "cython"]
+requires = ["scikit-build-core>=0.11", "cython>=3.1"]
 
 [dependency-groups]
 dev = [
@@ -32,6 +31,25 @@ dev = [
     "ruff>=0.14.14",
     "mypy>=1.19.1",
 ]
+
+[tool.cibuildwheel]
+# One abi3 wheel per platform covers CPython 3.12+.
+build = "cp312-*"
+skip = "*-musllinux_*"
+archs = ["native"]
+before-all = "bash scripts/build_sdl2.sh"
+test-requires = ["pytest", "hypothesis"]
+test-command = "pytest {project}/tests"
+
+[tool.cibuildwheel.macos]
+environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
+
+[tool.cibuildwheel.linux]
+before-all = """
+dnf install -y libX11-devel libXext-devel libXcursor-devel libXi-devel \
+    libXrandr-devel libXfixes-devel mesa-libGL-devel && \
+bash scripts/build_sdl2.sh
+"""
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

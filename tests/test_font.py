@@ -44,12 +44,13 @@ def test_builtin_font_draws_box_for_non_ascii():
 
 def test_load_font_changes_metrics(font_path):
     before = width("Hello")
-    pymui.load_font(font_path, 16)
+    # At 16 px, Arial Unicode measures "Hello" as 27 px, the same as the builtin.
+    pymui.load_font(font_path, 32)
     assert pymui.font_loaded()
-    assert width("Hello") != before
+    assert width("Hello") > before
     assert width("é") > 0
     assert width("Αβγ") > 0  # Greek
-    assert pymui.renderer_get_text_height() == 16
+    assert pymui.renderer_get_text_height() == 32
     pymui.reset_font()
     assert not pymui.font_loaded()
     assert width("Hello") == before
@@ -106,7 +107,7 @@ def test_layout_uses_loaded_font(font_path):
     pymui.load_font(font_path, 24)
     ctx = pymui.Context()
     with ctx:
-        with ctx.window("W", 0, 0, 400, 300, Option.NOTITLE):
+        with ctx.window("W", 0, 0, 300, 300, Option.NOTITLE):
             ctx.layout_row([-1], 0)
             ctx.text("one two three four five six seven eight nine ten")
     lines = 0
@@ -114,13 +115,14 @@ def test_layout_uses_loaded_font(font_path):
         lines += cmd.type == pymui.Command.TEXT
     pymui.reset_font()
     with ctx:
-        with ctx.window("W", 0, 0, 400, 300, Option.NOTITLE):
+        with ctx.window("W", 0, 0, 300, 300, Option.NOTITLE):
             ctx.layout_row([-1], 0)
             ctx.text("one two three four five six seven eight nine ten")
     builtin_lines = 0
     while (cmd := ctx.next_command()) is not None:
         builtin_lines += cmd.type == pymui.Command.TEXT
-    assert lines > builtin_lines  # 24 px text wraps more
+    # The line is 236 px in the builtin font, 369-443 px at 24 px in the candidates.
+    assert lines > builtin_lines
 
 
 def test_truncated_utf8_in_textbox_is_safe(font_path):

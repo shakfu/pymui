@@ -3,7 +3,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/src/pymui)
 
 find_package(
 	Python
-	COMPONENTS Interpreter Development.Module
+	COMPONENTS Interpreter Development.Module ${SKBUILD_SABI_COMPONENT}
 	REQUIRED)
 
 add_custom_command(
@@ -20,6 +20,7 @@ python_add_library(
     MODULE
     "${CMAKE_BINARY_DIR}/pymui.c"
     WITH_SOABI
+    USE_SABI ${SKBUILD_SABI_VERSION}
 )
 
 add_dependencies(

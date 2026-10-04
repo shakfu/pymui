@@ -371,29 +371,67 @@ cdef extern from "renderer.h":
     void r_present()
 
 cdef extern from "SDL2/SDL.h":
-    cdef const int SDL_BUTTON_LEFT
-    cdef const int SDL_BUTTON_RIGHT
-    cdef const int SDL_BUTTON_MIDDLE
+    ctypedef unsigned int Uint32
+    ctypedef unsigned char Uint8
+    ctypedef int Sint32
+    ctypedef Sint32 SDL_Keycode
 
-    cdef const int SDLK_LSHIFT
-    cdef const int SDLK_RSHIFT
-    cdef const int SDLK_LCTRL
-    cdef const int SDLK_RCTRL
-    cdef const int SDLK_LALT
-    cdef const int SDLK_RALT
-    cdef const int SDLK_RETURN
-    cdef const int SDLK_BACKSPACE
+    ctypedef struct SDL_Keysym:
+        SDL_Keycode sym
+    ctypedef struct SDL_KeyboardEvent:
+        SDL_Keysym keysym
+    ctypedef struct SDL_MouseMotionEvent:
+        Sint32 x
+        Sint32 y
+    ctypedef struct SDL_MouseButtonEvent:
+        Uint8 button
+        Sint32 x
+        Sint32 y
+    ctypedef struct SDL_MouseWheelEvent:
+        Sint32 y
+    ctypedef struct SDL_TextInputEvent:
+        char text[32]
+    ctypedef struct SDL_WindowEvent:
+        Uint8 event
+        Sint32 data1
+        Sint32 data2
+    ctypedef union SDL_Event:
+        Uint32 type
+        SDL_KeyboardEvent key
+        SDL_MouseMotionEvent motion
+        SDL_MouseButtonEvent button
+        SDL_MouseWheelEvent wheel
+        SDL_TextInputEvent text
+        SDL_WindowEvent window
 
-    cdef void SDL_INIT_EVERYTHING()
+    int SDL_InitSubSystem(Uint32 flags)
+    void SDL_Quit()
+    const char* SDL_GetError()
+    int SDL_PollEvent(SDL_Event* event)
 
-    cdef const int SDL_QUIT
-    cdef const int SDL_MOUSEMOTION
-    cdef const int SDL_MOUSEWHEEL
-    cdef const int SDL_TEXTINPUT
-    cdef const int SDL_MOUSEBUTTONDOWN
-    cdef const int SDL_MOUSEBUTTONUP
-    cdef const int SDL_KEYDOWN
-    cdef const int SDL_KEYUP
+    cdef const Uint32 SDL_INIT_VIDEO
 
+    cdef const Uint8 SDL_BUTTON_LEFT
+    cdef const Uint8 SDL_BUTTON_RIGHT
+    cdef const Uint8 SDL_BUTTON_MIDDLE
 
+    cdef const SDL_Keycode SDLK_LSHIFT
+    cdef const SDL_Keycode SDLK_RSHIFT
+    cdef const SDL_Keycode SDLK_LCTRL
+    cdef const SDL_Keycode SDLK_RCTRL
+    cdef const SDL_Keycode SDLK_LALT
+    cdef const SDL_Keycode SDLK_RALT
+    cdef const SDL_Keycode SDLK_RETURN
+    cdef const SDL_Keycode SDLK_KP_ENTER
+    cdef const SDL_Keycode SDLK_BACKSPACE
 
+    cdef const Uint32 SDL_QUIT
+    cdef const Uint32 SDL_MOUSEMOTION
+    cdef const Uint32 SDL_MOUSEWHEEL
+    cdef const Uint32 SDL_TEXTINPUT
+    cdef const Uint32 SDL_MOUSEBUTTONDOWN
+    cdef const Uint32 SDL_MOUSEBUTTONUP
+    cdef const Uint32 SDL_KEYDOWN
+    cdef const Uint32 SDL_KEYUP
+    cdef const Uint32 SDL_WINDOWEVENT
+    cdef const Uint8 SDL_WINDOWEVENT_SIZE_CHANGED

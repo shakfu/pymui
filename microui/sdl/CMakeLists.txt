@@ -1,17 +1,20 @@
 
 project(libmicroui_sdl VERSION 2.0.2)
 
-if(CMAKE_HOST_APPLE)
-    execute_process(
-        COMMAND brew --prefix
-        OUTPUT_VARIABLE homebrew_prefix
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    if(DEFINED homebrew_prefix)
-        set(LOCAL_PREFIX ${homebrew_prefix})
-    endif()
+# Wheels link the static SDL2 from scripts/build_sdl2.sh.
+if(DEFINED ENV{CIBUILDWHEEL})
+    list(PREPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/build/sdl2")
+endif()
+find_package(SDL2 REQUIRED CONFIG)
+if(TARGET SDL2::SDL2)
+    set(SDL2_TARGET SDL2::SDL2)
+else()
+    set(SDL2_TARGET SDL2::SDL2-static)
 endif()
 
+# libGL.so.1 is on the manylinux allowlist; GLVND's libOpenGL.so.0 is not.
+set(OpenGL_GL_PREFERENCE LEGACY)
+find_package(OpenGL REQUIRED)
 
 add_library(
     microui_sdl
@@ -23,7 +26,6 @@ target_include_directories(
     microui_sdl
     PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${LOCAL_PREFIX}/include
 )
 
 target_compile_definitions(
@@ -32,30 +34,19 @@ target_compile_definitions(
     -D_THREAD_SAFE
 )
 
-target_compile_options(
-    microui_sdl
-    PUBLIC
-    -Wall
-    -pedantic
-    -fPIC
-)
-
-target_link_directories(
-    microui_sdl
-    PUBLIC
-    ${LOCAL_PREFIX}/lib
-)
-
+set_target_properties(microui_sdl PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 target_link_libraries(
     microui_sdl
     PUBLIC
     microui
-    "$<$<PLATFORM_ID:Darwin>:-framework OpenGL>"
-    "$<$<PLATFORM_ID:Linux>:-lGL>"
-    -lSDL2
-    m  # stb_truetype
+    ${SDL2_TARGET}
+    OpenGL::GL
+    $<$<NOT:$<PLATFORM_ID:Windows>>:m>  # stb_truetype
 )
 
-add_subdirectory(demo)
+# The C demo is a development aid; wheels do not ship it.
+if(NOT SKBUILD)
+    add_subdirectory(demo)
+endif()
 

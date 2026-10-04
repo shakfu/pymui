@@ -16,40 +16,20 @@ UI frame per iteration, and renders with the bundled OpenGL renderer.
 
 from __future__ import annotations
 
-import ctypes
 import time
 from typing import Callable
-
-import sdl2  # type: ignore[import-untyped]
 
 from .pymui import (
     Color,
     Context,
-    Key,
-    Mouse,
+    Event,
+    EventType,
+    poll_event,
     render,
     renderer_init_window,
     renderer_resize,
     renderer_shutdown,
 )
-
-BUTTONS = {
-    sdl2.SDL_BUTTON_LEFT: Mouse.LEFT,
-    sdl2.SDL_BUTTON_RIGHT: Mouse.RIGHT,
-    sdl2.SDL_BUTTON_MIDDLE: Mouse.MIDDLE,
-}
-
-KEYS = {
-    sdl2.SDLK_LSHIFT: Key.SHIFT,
-    sdl2.SDLK_RSHIFT: Key.SHIFT,
-    sdl2.SDLK_LCTRL: Key.CTRL,
-    sdl2.SDLK_RCTRL: Key.CTRL,
-    sdl2.SDLK_LALT: Key.ALT,
-    sdl2.SDLK_RALT: Key.ALT,
-    sdl2.SDLK_RETURN: Key.RETURN,
-    sdl2.SDLK_KP_ENTER: Key.RETURN,
-    sdl2.SDLK_BACKSPACE: Key.BACKSPACE,
-}
 
 # Pixels scrolled per wheel notch; matches the microui C demo.
 SCROLL_STEP = 30
@@ -108,45 +88,33 @@ class App:
         """Stop the loop after the current frame."""
         self.running = False
 
-    def handle_event(self, event: sdl2.SDL_Event) -> None:
-        """Forward one SDL event to the context."""
+    def handle_event(self, event: Event) -> None:
+        """Forward one event to the context."""
         ctx = self.ctx
         t = event.type
-        if t == sdl2.SDL_QUIT:
+        if t == EventType.QUIT:
             self.quit()
-        elif t == sdl2.SDL_MOUSEMOTION:
-            ctx.input_mousemove(event.motion.x, event.motion.y)
-        elif t == sdl2.SDL_MOUSEWHEEL:
-            ctx.input_scroll(0, event.wheel.y * -SCROLL_STEP)
-        elif t == sdl2.SDL_TEXTINPUT:
-            text = event.text.text.split(b"\0", 1)[0]
-            ctx.input_text(text.decode("utf-8", errors="replace"))
-        elif t in (sdl2.SDL_MOUSEBUTTONDOWN, sdl2.SDL_MOUSEBUTTONUP):
-            btn = BUTTONS.get(event.button.button)
-            if btn:
-                x, y = event.button.x, event.button.y
-                if t == sdl2.SDL_MOUSEBUTTONDOWN:
-                    ctx.input_mousedown(x, y, btn)
-                else:
-                    ctx.input_mouseup(x, y, btn)
-        elif t in (sdl2.SDL_KEYDOWN, sdl2.SDL_KEYUP):
-            key = KEYS.get(event.key.keysym.sym)
-            if key:
-                if t == sdl2.SDL_KEYDOWN:
-                    ctx.input_keydown(key)
-                else:
-                    ctx.input_keyup(key)
-        elif (
-            t == sdl2.SDL_WINDOWEVENT
-            and event.window.event == sdl2.SDL_WINDOWEVENT_SIZE_CHANGED
-        ):
-            self.width, self.height = event.window.data1, event.window.data2
+        elif t == EventType.MOUSEMOTION:
+            ctx.input_mousemove(event.x, event.y)
+        elif t == EventType.MOUSEWHEEL:
+            ctx.input_scroll(0, event.y * -SCROLL_STEP)
+        elif t == EventType.TEXT:
+            ctx.input_text(event.text)
+        elif t == EventType.MOUSEDOWN and event.button:
+            ctx.input_mousedown(event.x, event.y, event.button)
+        elif t == EventType.MOUSEUP and event.button:
+            ctx.input_mouseup(event.x, event.y, event.button)
+        elif t == EventType.KEYDOWN and event.key:
+            ctx.input_keydown(event.key)
+        elif t == EventType.KEYUP and event.key:
+            ctx.input_keyup(event.key)
+        elif t == EventType.RESIZE:
+            self.width, self.height = event.x, event.y
             renderer_resize(self.width, self.height)
 
     def step(self, frame: Callable[[Context], None]) -> None:
         """Drain pending events, build one frame, and render it."""
-        event = sdl2.SDL_Event()
-        while sdl2.SDL_PollEvent(ctypes.byref(event)):
+        while (event := poll_event()) is not None:
             self.handle_event(event)
         with self.ctx:
             frame(self.ctx)
@@ -173,16 +141,11 @@ class App:
             RuntimeError: If SDL or the window cannot be initialized.
         """
         frame = frame if frame is not None else self.frame
-        if sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO) != 0:
-            raise RuntimeError(f"SDL_Init failed: {sdl2.SDL_GetError().decode()}")
+        renderer_init_window(self.title, self.width, self.height, self.resizable)
         try:
-            renderer_init_window(self.title, self.width, self.height, self.resizable)
-            try:
-                self.running = True
-                while self.running:
-                    self.step(frame)
-            finally:
-                renderer_shutdown()
+            self.running = True
+            while self.running:
+                self.step(frame)
         finally:
             self.running = False
-            sdl2.SDL_Quit()
+            renderer_shutdown()

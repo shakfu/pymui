@@ -1827,7 +1827,9 @@ def renderer_init():
     renderer_init_window("", 800, 600, False)
 
 def renderer_init_window(str title="pymui", int width=800, int height=600, bint resizable=True):
-    """Create the renderer window and GL context. SDL video must be initialized.
+    """Initialize SDL video and create the renderer window and GL context.
+
+    Does nothing if the window is already open.
 
     Raises:
         RuntimeError: If the window or GL context cannot be created.
@@ -1835,8 +1837,13 @@ def renderer_init_window(str title="pymui", int width=800, int height=600, bint 
     global _window_open
     if width <= 0 or height <= 0:
         raise ValueError("Window dimensions must be positive")
+    if _window_open:
+        return
     cdef bytes btitle = title.encode('utf-8')
+    if SDL_InitSubSystem(SDL_INIT_VIDEO) != 0:
+        raise RuntimeError(f"SDL_Init failed: {SDL_GetError().decode('utf-8', 'replace')}")
     if r_init_window(btitle, width, height, resizable) != 0:
+        SDL_Quit()
         raise RuntimeError("Failed to create renderer window")
     _window_open = True
 
@@ -1845,10 +1852,147 @@ def renderer_resize(int width, int height):
     r_resize(width, height)
 
 def renderer_shutdown():
-    """Destroy the renderer window and GL context."""
+    """Destroy the renderer window and GL context, and shut down SDL."""
     global _window_open
     r_shutdown()
+    if _window_open:
+        SDL_Quit()
     _window_open = False
+
+
+cdef enum:
+    _EV_QUIT = 1
+    _EV_MOUSEMOTION
+    _EV_MOUSEDOWN
+    _EV_MOUSEUP
+    _EV_MOUSEWHEEL
+    _EV_KEYDOWN
+    _EV_KEYUP
+    _EV_TEXT
+    _EV_RESIZE
+
+class EventType:
+    QUIT = _EV_QUIT
+    MOUSEMOTION = _EV_MOUSEMOTION
+    MOUSEDOWN = _EV_MOUSEDOWN
+    MOUSEUP = _EV_MOUSEUP
+    MOUSEWHEEL = _EV_MOUSEWHEEL
+    KEYDOWN = _EV_KEYDOWN
+    KEYUP = _EV_KEYUP
+    TEXT = _EV_TEXT
+    RESIZE = _EV_RESIZE
+
+
+cdef class Event:
+    """A window event, translated from SDL by `poll_event()`.
+
+    `x, y` is the pointer position for mouse button and motion events, the
+    scroll amount for MOUSEWHEEL, and the new window size for RESIZE.
+    `button` is a `Mouse` value and `key` a `Key` value, 0 if unmapped.
+    `keycode` is the SDL keycode, which equals the ASCII code for printable keys.
+    """
+    cdef readonly int type, x, y, button, key, keycode
+    cdef readonly str text
+
+    def __init__(self, int type, int x=0, int y=0, int button=0, int key=0,
+                 int keycode=0, str text=""):
+        self.type = type
+        self.x = x
+        self.y = y
+        self.button = button
+        self.key = key
+        self.keycode = keycode
+        self.text = text
+
+    def __repr__(self):
+        return (f"Event(type={self.type}, x={self.x}, y={self.y}, button={self.button}, "
+                f"key={self.key}, keycode={self.keycode}, text={self.text!r})")
+
+
+cdef int _map_button(Uint8 b):
+    if b == SDL_BUTTON_LEFT: return MU_MOUSE_LEFT
+    if b == SDL_BUTTON_RIGHT: return MU_MOUSE_RIGHT
+    if b == SDL_BUTTON_MIDDLE: return MU_MOUSE_MIDDLE
+    return 0
+
+
+cdef int _map_key(SDL_Keycode k):
+    if k == SDLK_LSHIFT or k == SDLK_RSHIFT: return MU_KEY_SHIFT
+    if k == SDLK_LCTRL or k == SDLK_RCTRL: return MU_KEY_CTRL
+    if k == SDLK_LALT or k == SDLK_RALT: return MU_KEY_ALT
+    if k == SDLK_RETURN or k == SDLK_KP_ENTER: return MU_KEY_RETURN
+    if k == SDLK_BACKSPACE: return MU_KEY_BACKSPACE
+    return 0
+
+
+cdef Event _translate(SDL_Event* e):
+    cdef Uint32 t = e.type
+    cdef const char* s
+    if t == SDL_QUIT:
+        return Event(_EV_QUIT)
+    if t == SDL_MOUSEMOTION:
+        return Event(_EV_MOUSEMOTION, e.motion.x, e.motion.y)
+    if t == SDL_MOUSEBUTTONDOWN or t == SDL_MOUSEBUTTONUP:
+        return Event(_EV_MOUSEDOWN if t == SDL_MOUSEBUTTONDOWN else _EV_MOUSEUP,
+                     e.button.x, e.button.y, _map_button(e.button.button))
+    if t == SDL_MOUSEWHEEL:
+        return Event(_EV_MOUSEWHEEL, 0, e.wheel.y)
+    if t == SDL_KEYDOWN or t == SDL_KEYUP:
+        return Event(_EV_KEYDOWN if t == SDL_KEYDOWN else _EV_KEYUP,
+                     key=_map_key(e.key.keysym.sym), keycode=e.key.keysym.sym)
+    if t == SDL_TEXTINPUT:
+        s = e.text.text
+        return Event(_EV_TEXT, text=s[:strlen(s)].decode('utf-8', 'replace'))
+    if t == SDL_WINDOWEVENT and e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED:
+        return Event(_EV_RESIZE, e.window.data1, e.window.data2)
+    return None
+
+
+def poll_event():
+    """Return the next pending window event, or None if the queue is empty.
+
+    SDL events with no `EventType` are skipped.
+    """
+    cdef SDL_Event e
+    cdef Event ev
+    while SDL_PollEvent(&e):
+        ev = _translate(&e)
+        if ev is not None:
+            return ev
+    return None
+
+
+def _translate_sdl_event(str kind, int a=0, int b=0, int c=0, bytes text=b""):
+    """Test hook: build a raw SDL event and translate it as `poll_event()` does.
+
+    Bypasses the SDL queue: sdl2-compat 2.32 crashes in SDL_PushEvent on text events.
+    """
+    cdef SDL_Event e
+    memset(&e, 0, sizeof(e))
+    if kind == "quit":
+        e.type = SDL_QUIT
+    elif kind == "motion":
+        e.type = SDL_MOUSEMOTION
+        e.motion.x, e.motion.y = a, b
+    elif kind == "down" or kind == "up":
+        e.type = SDL_MOUSEBUTTONDOWN if kind == "down" else SDL_MOUSEBUTTONUP
+        e.button.button, e.button.x, e.button.y = a, b, c
+    elif kind == "wheel":
+        e.type = SDL_MOUSEWHEEL
+        e.wheel.y = a
+    elif kind == "keydown" or kind == "keyup":
+        e.type = SDL_KEYDOWN if kind == "keydown" else SDL_KEYUP
+        e.key.keysym.sym = a
+    elif kind == "text":
+        e.type = SDL_TEXTINPUT
+        memcpy(e.text.text, <const char*>text, min(len(text), sizeof(e.text.text) - 1))
+    elif kind == "window":
+        e.type = SDL_WINDOWEVENT
+        e.window.event, e.window.data1, e.window.data2 = a, b, c
+    else:
+        raise ValueError(kind)
+    return _translate(&e)
+
 
 def render(Context ctx, Color bg=None):
     """Clear to `bg` (if given), draw `ctx`'s command list, and present.

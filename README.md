@@ -51,7 +51,7 @@ Note: Earlier iterations of microui-py were created with the intent to contribut
 The distribution is named `microui-py`; the import name is `pymui`.
 
 ```bash
-pip install microui-py     # builds from source: needs SDL2 headers and a C compiler
+pip install microui-py     # abi3 wheels for CPython 3.12+; 3.10/3.11 build from source
 ```
 
 ```python
@@ -513,7 +513,7 @@ colors = [
 
 - C11 compiler (GCC or Clang; Windows is untested)
 
-- SDL2 development libraries
+- SDL2 development libraries, including its CMake config
 
 - OpenGL development libraries (Linux: `libgl-dev`, macOS: included)
 
@@ -643,6 +643,7 @@ The type stubs in [`src/pymui/pymui.pyi`](src/pymui/pymui.pyi) list every class,
 | Input state | `hover`, `focus`, `mouse_pos`, `mouse_delta`, `mouse_down`, `mouse_pressed`, `key_down`, `key_pressed` |
 | Input | `input_mousemove`, `input_mousedown`, `input_mouseup`, `input_scroll`, `input_keydown`, `input_keyup`, `input_text` |
 | Rendering | `render`, `renderer_init_window`, `renderer_resize`, `renderer_shutdown`, `next_command`, `load_font`, `reset_font` |
+| Events | `poll_event`, `Event`, `EventType` |
 | App | `pymui.app.App`: `frame`, `run`, `step`, `quit`, `handle_event` |
 
 ### Result Flags

@@ -7,11 +7,16 @@ Structure and design are in [architecture.md](architecture.md).
 - Python 3.10+ (`.python-version` pins 3.13 for local work)
 - `uv`
 - CMake 3.28+ and a C11 compiler
-- SDL2 development headers and OpenGL (`libsdl2-dev` on Debian/Ubuntu,
+- SDL2 with its CMake config, and OpenGL (`libsdl2-dev` on Debian/Ubuntu,
   `brew install sdl2` on macOS)
 
-CI builds on Ubuntu only. The CMake files look up the Homebrew prefix on
-macOS; Windows is untested.
+## Wheels
+
+`.github/workflows/wheels.yml` runs cibuildwheel (config in `pyproject.toml`)
+on tag pushes and manual runs. It builds one abi3 wheel per platform, then
+tests it on CPython 3.12. `scripts/build_sdl2.sh` builds static SDL2 into
+`build/sdl2`; CMake uses it when `CIBUILDWHEEL` is set. PyPI uploads use
+trusted publishing: register the workflow on PyPI with environment `pypi`.
 
 ## Setup
 
@@ -73,8 +78,9 @@ Driving input:
   click positions are known.
 - Hover resolves one frame late. Move the mouse, run two frames, then press:
   see `Harness.click` in `tests/test_widgets.py`.
-- `App.handle_event` takes synthetic `sdl2.SDL_Event` structs; see
-  `tests/test_app.py`.
+- `App.handle_event` takes synthetic `pymui.Event` objects; see
+  `tests/test_app.py`. `pymui.pymui._translate_sdl_event` checks the SDL
+  translation without a window.
 
 `tests/test_font.py` needs a TrueType font. It looks for DejaVu Sans
 (`fonts-dejavu-core` on Debian/Ubuntu, installed in CI) and skips otherwise.

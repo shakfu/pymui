@@ -1,0 +1,94 @@
+name: Wheels
+
+# Tag pushes (v*) build and publish to PyPI and a GitHub release.
+# Manual runs build only, unless the inputs request an upload.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      pypi:
+        description: Upload to PyPI
+        type: boolean
+        default: false
+      github_release:
+        description: Attach to a GitHub release (run from a tag)
+        type: boolean
+        default: false
+
+jobs:
+  build_wheels:
+    name: Wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest       # x86_64
+          - ubuntu-24.04-arm    # aarch64
+          - macos-15-intel      # x86_64
+          - macos-latest        # arm64
+          - windows-latest      # AMD64
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pypa/cibuildwheel@v4.2.1
+
+      - name: Check abi3 symbols
+        shell: bash
+        run: pipx run abi3audit --strict --report wheelhouse/*.whl
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  build_sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build sdist
+        run: pipx run build --sdist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish_pypi:
+    needs: [build_wheels, build_sdist]
+    if: github.event_name == 'push' || inputs.pypi
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: pypa/gh-action-pypi-publish@v1.14.2
+
+  github_release:
+    needs: [build_wheels, build_sdist]
+    if: github.event_name == 'push' || inputs.github_release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Require a tag
+        if: github.ref_type != 'tag'
+        run: |
+          echo "github_release needs a tag ref; got ${{ github.ref }}"
+          exit 1
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*
