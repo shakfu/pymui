@@ -1,7 +1,6 @@
 name: Wheels
 
-# Tag pushes (v*) build and publish to PyPI and a GitHub release.
-# Manual runs build only, unless the inputs request an upload.
+# Tag pushes build and attach to a GitHub release. PyPI uploads are manual.
 on:
   push:
     tags:
@@ -12,18 +11,10 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+*'
   workflow_dispatch:
     inputs:
-      pypi:
-        description: Upload to PyPI
-        type: boolean
-        default: false
       github_release:
         description: Attach to a GitHub release (run from a tag)
         type: boolean
         default: false
-
-# Empty on a tagless dispatch: builds are versioned `dev-<sha7>` and publish is skipped.
-env:
-  TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
 
 jobs:
   build_wheels:
@@ -65,23 +56,19 @@ jobs:
           name: sdist
           path: dist/*.tar.gz
 
-  publish_pypi:
+  # One `dist` artifact holding every wheel and the sdist.
+  merge:
     needs: [build_wheels, build_sdist]
-    if: github.event_name == 'push' || inputs.pypi
     runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write  # trusted publishing
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/upload-artifact/merge@v7
         with:
-          path: dist
-          merge-multiple: true
-
-      - uses: pypa/gh-action-pypi-publish@v1.14.2
+          name: dist
+          pattern: "{wheels-*,sdist}"
+          delete-merged: true
 
   github_release:
-    needs: [build_wheels, build_sdist]
+    needs: merge
     if: github.event_name == 'push' || inputs.github_release
     runs-on: ubuntu-latest
     permissions:
@@ -93,10 +80,12 @@ jobs:
           echo "github_release needs a tag ref; got ${{ github.ref }}"
           exit 1
 
+      - uses: actions/checkout@v7
+
       - uses: actions/download-artifact@v8
         with:
+          name: dist
           path: dist
-          merge-multiple: true
 
       - name: extract release notes from CHANGELOG
         # Pulls the section under `## [<version>]` out of CHANGELOG.md
@@ -106,16 +95,18 @@ jobs:
         # (release body comes from release-notes.md); exit 2 = nothing
         # to use (release body falls back to GitHub's auto-generated
         # commit-list notes).
+        # Any other exit code is a script error and fails the job.
         run: |
-          VERSION="${TAG#v}"
-          if python3 scripts/release_notes.py "${VERSION}"; then
-            echo "FOUND=1" >> "$GITHUB_ENV"
-            echo "--- release-notes.md ---"
-            cat release-notes.md
-          else
-            echo "FOUND=0" >> "$GITHUB_ENV"
-          fi
+          rc=0
+          python3 scripts/release_notes.py "${GITHUB_REF_NAME#v}" || rc=$?
+          case $rc in
+            0) echo "FOUND=1" >> "$GITHUB_ENV"; cat release-notes.md ;;
+            2) echo "FOUND=0" >> "$GITHUB_ENV" ;;
+            *) exit $rc ;;
+          esac
 
       - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
+          body_path: ${{ env.FOUND == '1' && 'release-notes.md' || '' }}
+          generate_release_notes: ${{ env.FOUND != '1' }}

@@ -15,8 +15,9 @@ Structure and design are in [architecture.md](architecture.md).
 `.github/workflows/wheels.yml` runs cibuildwheel (config in `pyproject.toml`)
 on tag pushes and manual runs. It builds one abi3 wheel per platform, then
 tests it on CPython 3.12. `scripts/build_sdl2.sh` builds static SDL2 into
-`build/sdl2`; CMake uses it when `CIBUILDWHEEL` is set. PyPI uploads use
-trusted publishing: register the workflow on PyPI with environment `pypi`.
+`build/sdl2`; CMake uses it when `CIBUILDWHEEL` is set. Tag pushes attach the
+wheels and sdist to a GitHub release, with notes from `CHANGELOG.md`
+(`scripts/release_notes.py`). PyPI uploads are manual (`make publish`).
 
 ## Setup
 

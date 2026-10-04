@@ -4,7 +4,7 @@
 
 ### Added
 
-- `.github/workflows/wheels.yml` builds abi3 wheels for CPython 3.12+ with cibuildwheel: Linux x86_64/aarch64 (manylinux), macOS x86_64/arm64, Windows AMD64. A `v*` tag push publishes to PyPI (trusted publishing, environment `pypi`) and a GitHub release; a manual run uploads only when its inputs say so. `scripts/build_sdl2.sh` builds SDL2 2.32.10 from a hash-checked tarball, linked statically so wheels need no system SDL2. Python 3.10 and 3.11 install from the sdist.
+- `.github/workflows/wheels.yml` builds abi3 wheels for CPython 3.12+ with cibuildwheel: Linux x86_64/aarch64 (manylinux), macOS x86_64/arm64, Windows AMD64. A tag push attaches the wheels and sdist to a GitHub release, with notes from this file; PyPI uploads are manual. `scripts/build_sdl2.sh` builds SDL2 2.32.10 from a hash-checked tarball, linked statically so wheels need no system SDL2. Python 3.10 and 3.11 install from the sdist.
 
 - `pymui.poll_event()` returns the next window event as a `pymui.Event`, or `None`. `EventType` names the translated kinds; other SDL events are dropped.
 

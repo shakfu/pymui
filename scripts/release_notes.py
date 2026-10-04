@@ -13,7 +13,7 @@ Exit codes:
   0  section found + written to --output
   2  no matching section (neither version nor Unreleased); output not written
 
-Used by .github/workflows/release.yml to populate the GitHub release body
+Used by .github/workflows/wheels.yml to populate the GitHub release body
 from CHANGELOG.md. The dot-in-version-as-regex-metachar pitfall that the
 shell/awk version had to work around does not exist here: this script
 compares headings with `==` against a Python string.
