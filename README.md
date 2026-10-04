@@ -26,7 +26,7 @@ Note: Earlier iterations of microui-py were created with the intent to contribut
 
 - **Unicode Text** - Load any TrueType/OpenType font with `pymui.load_font()`
 
-![screenshot](https://github.com/shakfu/microui-py/blob/main/docs/media/screenshot.png?raw=true)
+![screenshot](https://github.com/shakfu/microui-py/blob/main/doc/media/screenshot.png?raw=true)
 
 ## Upgrading from 0.2
 
